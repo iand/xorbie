@@ -7,8 +7,8 @@ import (
 
 	"github.com/ipfs/go-libdht/kad"
 
-	"github.com/iand/xorbie/internal/coord/coordt"
-	"github.com/iand/xorbie/internal/coord/routing"
+	"github.com/iand/xorbie/coordt"
+	"github.com/iand/xorbie/routing"
 )
 
 // A Peer is a participant in a [Topology], holding everything a coordinator needs to run on

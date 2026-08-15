@@ -1,0 +1,102 @@
+package brdcst
+
+import (
+	"fmt"
+
+	"go.opentelemetry.io/otel/trace"
+
+	"github.com/iand/xorbie/coordt"
+	"github.com/iand/xorbie/query"
+)
+
+// ConfigPool specifies the configuration for a broadcast [Pool].
+type ConfigPool struct {
+	pCfg *query.PoolConfig
+
+	// Tracer is the tracer that should be used to trace execution.
+	Tracer trace.Tracer
+}
+
+// Validate checks the configuration options and returns an error if any have
+// invalid values.
+func (cfg *ConfigPool) Validate() error {
+	if cfg.pCfg == nil {
+		return fmt.Errorf("query pool config must not be nil")
+	}
+
+	if cfg.Tracer == nil {
+		return fmt.Errorf("tracer must not be nil")
+	}
+
+	return nil
+}
+
+// DefaultConfigPool returns the default configuration options for a Pool.
+// Options may be overridden before passing to NewPool
+func DefaultConfigPool() *ConfigPool {
+	return &ConfigPool{
+		pCfg:   query.DefaultPoolConfig(),
+		Tracer: coordt.NoopTracer(),
+	}
+}
+
+// Config is an interface that all broadcast configurations must implement.
+// Because we have multiple ways of broadcasting records to the network, like
+// [FollowUp] or [Static], the [EventPoolStartBroadcast] has a configuration
+// field that depending on the concrete type of [Config] initializes the
+// respective state machine. Then the broadcast operation will be performed
+// based on the encoded rules in that state machine.
+type Config interface {
+	broadcastConfig()
+}
+
+func (c *ConfigFollowUp) broadcastConfig()   {}
+func (c *ConfigOptimistic) broadcastConfig() {}
+func (c *ConfigStatic) broadcastConfig()     {}
+
+// ConfigFollowUp specifies the configuration for the [FollowUp] state machine.
+type ConfigFollowUp struct{}
+
+// Validate checks the configuration options and returns an error if any have
+// invalid values.
+func (c *ConfigFollowUp) Validate() error {
+	return nil
+}
+
+// DefaultConfigFollowUp returns the default configuration options for the
+// [FollowUp] state machine.
+func DefaultConfigFollowUp() *ConfigFollowUp {
+	return &ConfigFollowUp{}
+}
+
+// ConfigOptimistic specifies the configuration for the [Optimistic] state
+// machine.
+type ConfigOptimistic struct{}
+
+// Validate checks the configuration options and returns an error if any have
+// invalid values.
+func (c *ConfigOptimistic) Validate() error {
+	return nil
+}
+
+// DefaultConfigOptimistic returns the default configuration options for the
+// [Optimistic] state machine.
+func DefaultConfigOptimistic() *ConfigOptimistic {
+	return &ConfigOptimistic{}
+}
+
+// ConfigStatic specifies the configuration for the [Static] state
+// machine.
+type ConfigStatic struct{}
+
+// Validate checks the configuration options and returns an error if any have
+// invalid values.
+func (c *ConfigStatic) Validate() error {
+	return nil
+}
+
+// DefaultConfigStatic returns the default configuration options for the
+// [Static] state machine.
+func DefaultConfigStatic() *ConfigStatic {
+	return &ConfigStatic{}
+}

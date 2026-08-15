@@ -3,7 +3,7 @@ package nettest
 import (
 	"github.com/ipfs/go-libdht/kad"
 
-	"github.com/iand/xorbie/internal/coord/coordt"
+	"github.com/iand/xorbie/coordt"
 )
 
 // A Protocol supplies the node identities and the messages a [Topology] needs. It is all the

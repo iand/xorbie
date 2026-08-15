@@ -6,7 +6,7 @@ import (
 	"github.com/ipfs/go-libdht/kad"
 	"github.com/ipfs/go-libdht/kad/triert"
 
-	"github.com/iand/xorbie/internal/coord/coordt"
+	"github.com/iand/xorbie/coordt"
 )
 
 // LinearTopology creates a network topology consisting of n nodes peered in a linear chain.

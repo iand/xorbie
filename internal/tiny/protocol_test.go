@@ -1,7 +1,7 @@
 package tiny_test
 
 import (
-	"github.com/iand/xorbie/internal/coord/coordt"
+	"github.com/iand/xorbie/coordt"
 	"github.com/iand/xorbie/internal/tiny"
 )
 
