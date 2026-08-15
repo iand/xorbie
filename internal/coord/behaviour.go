@@ -9,7 +9,7 @@ import (
 
 	"github.com/ipfs/go-libdht/kad"
 
-	"github.com/probe-lab/zikade/internal/coord/coordt"
+	"github.com/iand/xorbie/internal/coord/coordt"
 )
 
 // ErrEventDropped is the error reported to the caller of an operation whose event was

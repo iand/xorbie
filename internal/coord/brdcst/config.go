@@ -5,8 +5,8 @@ import (
 
 	"go.opentelemetry.io/otel/trace"
 
-	"github.com/probe-lab/zikade/internal/coord/coordt"
-	"github.com/probe-lab/zikade/internal/coord/query"
+	"github.com/iand/xorbie/internal/coord/coordt"
+	"github.com/iand/xorbie/internal/coord/query"
 )
 
 // ConfigPool specifies the configuration for a broadcast [Pool].

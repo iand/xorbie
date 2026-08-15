@@ -13,7 +13,7 @@ import (
 
 	"github.com/ipfs/go-libdht/kad"
 
-	"github.com/probe-lab/zikade/internal/coord/coordt"
+	"github.com/iand/xorbie/internal/coord/coordt"
 )
 
 // ErrRequestDropped is the error reported for a request dropped because no capacity was

@@ -11,9 +11,9 @@ import (
 	"github.com/stretchr/testify/require"
 	"github.com/stretchr/testify/suite"
 
-	"github.com/probe-lab/zikade/internal/coord/coordt"
-	"github.com/probe-lab/zikade/internal/kadtest"
-	"github.com/probe-lab/zikade/internal/tiny"
+	"github.com/iand/xorbie/internal/coord/coordt"
+	"github.com/iand/xorbie/internal/kadtest"
+	"github.com/iand/xorbie/internal/tiny"
 )
 
 func TestQueryConfigValidate(t *testing.T) {

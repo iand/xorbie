@@ -8,12 +8,12 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	"github.com/probe-lab/zikade/internal/coord/brdcst"
-	"github.com/probe-lab/zikade/internal/coord/coordt"
-	"github.com/probe-lab/zikade/internal/coord/query"
-	"github.com/probe-lab/zikade/internal/coord/routing"
-	"github.com/probe-lab/zikade/internal/kadtest"
-	"github.com/probe-lab/zikade/internal/tiny"
+	"github.com/iand/xorbie/internal/coord/brdcst"
+	"github.com/iand/xorbie/internal/coord/coordt"
+	"github.com/iand/xorbie/internal/coord/query"
+	"github.com/iand/xorbie/internal/coord/routing"
+	"github.com/iand/xorbie/internal/kadtest"
+	"github.com/iand/xorbie/internal/tiny"
 )
 
 type RecordingSM[E any, S any] struct {

@@ -16,7 +16,7 @@ import (
 )
 
 // serviceName identifies traces emitted by tests using [MaybeTrace].
-const serviceName = "zikade-test"
+const serviceName = "xorbie-test"
 
 var (
 	tracing     = flag.Bool("tracing", false, "Enable or disable tracing")

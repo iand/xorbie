@@ -9,7 +9,7 @@ import (
 	"github.com/ipfs/go-libdht/kad"
 	"github.com/ipfs/go-libdht/kad/key"
 
-	"github.com/probe-lab/zikade/internal/coord/coordt"
+	"github.com/iand/xorbie/internal/coord/coordt"
 )
 
 // Link represents the route between two nodes. It allows latency and transport failures to be simulated.

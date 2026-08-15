@@ -3,8 +3,8 @@ package coord
 import (
 	"github.com/ipfs/go-libdht/kad"
 
-	"github.com/probe-lab/zikade/internal/coord/brdcst"
-	"github.com/probe-lab/zikade/internal/coord/coordt"
+	"github.com/iand/xorbie/internal/coord/brdcst"
+	"github.com/iand/xorbie/internal/coord/coordt"
 )
 
 // EventStartBroadcast starts a new

@@ -5,7 +5,7 @@ import (
 
 	"github.com/ipfs/go-libdht/kad"
 
-	"github.com/probe-lab/zikade/internal/coord/coordt"
+	"github.com/iand/xorbie/internal/coord/coordt"
 )
 
 // BroadcastState must be implemented by all states that a [Broadcast] state

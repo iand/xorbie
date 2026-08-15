@@ -12,8 +12,8 @@ import (
 
 // meterName and tracerName name this package as the source of the telemetry it emits.
 const (
-	meterName  = "github.com/probe-lab/zikade/internal/coord"
-	tracerName = "github.com/probe-lab/zikade/internal/coord"
+	meterName  = "github.com/iand/xorbie/internal/coord"
+	tracerName = "github.com/iand/xorbie/internal/coord"
 )
 
 // Telemetry is the struct that holds a reference to all metrics and the tracer used

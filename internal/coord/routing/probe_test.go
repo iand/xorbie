@@ -10,7 +10,7 @@ import (
 	"github.com/ipfs/go-libdht/kad/triert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/probe-lab/zikade/internal/tiny"
+	"github.com/iand/xorbie/internal/tiny"
 )
 
 var _ heap.Interface = (*nodeValuePendingList[tiny.Key, tiny.Node])(nil)

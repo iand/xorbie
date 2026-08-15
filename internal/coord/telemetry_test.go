@@ -10,9 +10,9 @@ import (
 	"go.opentelemetry.io/otel/sdk/metric/metricdata"
 	"go.opentelemetry.io/otel/trace/noop"
 
-	"github.com/probe-lab/zikade/internal/coord/coordt"
-	"github.com/probe-lab/zikade/internal/kadtest"
-	"github.com/probe-lab/zikade/internal/tiny"
+	"github.com/iand/xorbie/internal/coord/coordt"
+	"github.com/iand/xorbie/internal/kadtest"
+	"github.com/iand/xorbie/internal/tiny"
 )
 
 // collectSums reads every instrument the reader holds and returns the single data point of

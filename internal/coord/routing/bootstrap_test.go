@@ -11,8 +11,8 @@ import (
 	"github.com/ipfs/go-libdht/kad/triert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/probe-lab/zikade/internal/coord/coordt"
-	"github.com/probe-lab/zikade/internal/tiny"
+	"github.com/iand/xorbie/internal/coord/coordt"
+	"github.com/iand/xorbie/internal/tiny"
 )
 
 // emptyRoutingTable returns a routing table that contains no nodes.

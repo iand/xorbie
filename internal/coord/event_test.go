@@ -1,6 +1,6 @@
 package coord
 
-import "github.com/probe-lab/zikade/internal/tiny"
+import "github.com/iand/xorbie/internal/tiny"
 
 var _ NetworkCommand = (*EventOutboundGetCloserNodes[tiny.Key, tiny.Node])(nil)
 

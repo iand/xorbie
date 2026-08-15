@@ -12,8 +12,8 @@ import (
 
 	"github.com/ipfs/go-libdht/kad"
 
-	"github.com/probe-lab/zikade/internal/coord/brdcst"
-	"github.com/probe-lab/zikade/internal/coord/coordt"
+	"github.com/iand/xorbie/internal/coord/brdcst"
+	"github.com/iand/xorbie/internal/coord/coordt"
 )
 
 type BroadcastConfig[K kad.Key[K], N kad.NodeID[K], M coordt.Message[K, N]] struct {

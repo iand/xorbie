@@ -13,7 +13,7 @@ import (
 )
 
 // modulePath is the import path of the module that currently holds the core.
-const modulePath = "github.com/probe-lab/zikade"
+const modulePath = "github.com/iand/xorbie"
 
 // coreDirs are the module relative directories that make up the neutral Kademlia
 // core. Every Go file below them, tests included, is subject to the import

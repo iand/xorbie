@@ -16,9 +16,9 @@ import (
 	"go.opentelemetry.io/otel/metric"
 	"go.opentelemetry.io/otel/trace"
 
-	"github.com/probe-lab/zikade/internal/coord/brdcst"
-	"github.com/probe-lab/zikade/internal/coord/coordt"
-	"github.com/probe-lab/zikade/internal/coord/routing"
+	"github.com/iand/xorbie/internal/coord/brdcst"
+	"github.com/iand/xorbie/internal/coord/coordt"
+	"github.com/iand/xorbie/internal/coord/routing"
 )
 
 // A Coordinator coordinates the state machines that comprise a Kademlia DHT

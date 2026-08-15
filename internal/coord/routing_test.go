@@ -8,10 +8,10 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	"github.com/probe-lab/zikade/internal/coord/coordt"
-	"github.com/probe-lab/zikade/internal/coord/routing"
-	"github.com/probe-lab/zikade/internal/kadtest"
-	"github.com/probe-lab/zikade/internal/tiny"
+	"github.com/iand/xorbie/internal/coord/coordt"
+	"github.com/iand/xorbie/internal/coord/routing"
+	"github.com/iand/xorbie/internal/kadtest"
+	"github.com/iand/xorbie/internal/tiny"
 )
 
 // idleBootstrap returns a bootstrap state machine that is always idle

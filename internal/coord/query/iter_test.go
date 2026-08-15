@@ -7,7 +7,7 @@ import (
 	"github.com/ipfs/go-libdht/kad/key"
 	"github.com/stretchr/testify/require"
 
-	"github.com/probe-lab/zikade/internal/tiny"
+	"github.com/iand/xorbie/internal/tiny"
 )
 
 var (

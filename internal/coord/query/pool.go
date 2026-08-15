@@ -8,7 +8,7 @@ import (
 	"github.com/ipfs/go-libdht/kad"
 	"go.opentelemetry.io/otel/trace"
 
-	"github.com/probe-lab/zikade/internal/coord/coordt"
+	"github.com/iand/xorbie/internal/coord/coordt"
 )
 
 type Pool[K kad.Key[K], N kad.NodeID[K], M coordt.Message[K, N]] struct {

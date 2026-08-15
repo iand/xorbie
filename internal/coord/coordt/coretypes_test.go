@@ -1,8 +1,8 @@
 package coordt_test
 
 import (
-	"github.com/probe-lab/zikade/internal/coord/coordt"
-	"github.com/probe-lab/zikade/internal/tiny"
+	"github.com/iand/xorbie/internal/coord/coordt"
+	"github.com/iand/xorbie/internal/tiny"
 )
 
 var (

@@ -1,8 +1,8 @@
 package coord
 
 import (
-	"github.com/probe-lab/zikade/internal/nettest"
-	"github.com/probe-lab/zikade/internal/tiny"
+	"github.com/iand/xorbie/internal/nettest"
+	"github.com/iand/xorbie/internal/tiny"
 )
 
 // The coordinator tests run on the tiny key, node and message types.

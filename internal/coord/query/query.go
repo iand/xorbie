@@ -9,7 +9,7 @@ import (
 	"github.com/ipfs/go-libdht/kad/key"
 	"go.opentelemetry.io/otel/trace"
 
-	"github.com/probe-lab/zikade/internal/coord/coordt"
+	"github.com/iand/xorbie/internal/coord/coordt"
 )
 
 type QueryStats struct {

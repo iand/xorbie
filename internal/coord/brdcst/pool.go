@@ -8,8 +8,8 @@ import (
 	"github.com/ipfs/go-libdht/kad"
 	"go.opentelemetry.io/otel/trace"
 
-	"github.com/probe-lab/zikade/internal/coord/coordt"
-	"github.com/probe-lab/zikade/internal/coord/query"
+	"github.com/iand/xorbie/internal/coord/coordt"
+	"github.com/iand/xorbie/internal/coord/query"
 )
 
 // Broadcast is a type alias for a specific kind of state machine that any

@@ -3,7 +3,7 @@ package brdcst
 import (
 	"testing"
 
-	"github.com/probe-lab/zikade/internal/tiny"
+	"github.com/iand/xorbie/internal/tiny"
 )
 
 func TestBroadcastState_interface_conformance(t *testing.T) {

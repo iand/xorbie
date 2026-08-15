@@ -10,9 +10,9 @@ import (
 	"github.com/stretchr/testify/require"
 	sdkmetric "go.opentelemetry.io/otel/sdk/metric"
 
-	"github.com/probe-lab/zikade/internal/coord/coordt"
-	"github.com/probe-lab/zikade/internal/kadtest"
-	"github.com/probe-lab/zikade/internal/tiny"
+	"github.com/iand/xorbie/internal/coord/coordt"
+	"github.com/iand/xorbie/internal/kadtest"
+	"github.com/iand/xorbie/internal/tiny"
 )
 
 // TestNetworkBehaviourDropsRequestsBeyondNodeCapacity checks that requests to a node that
