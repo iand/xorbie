@@ -26,11 +26,8 @@ var coreDirs = []string{
 }
 
 // nonCoreDirs are directories below a core directory that are not part of the
-// core. cplutil searches for key preimages, which exists because the Amino wire
-// format carries preimages rather than hashes, so it belongs to the Amino side.
-var nonCoreDirs = []string{
-	"internal/coord/cplutil",
-}
+// core. There are none: this module holds only the core.
+var nonCoreDirs = []string{}
 
 // allowedModules are the third party module paths the core may import. A path
 // matches when it equals an entry or is below it.
