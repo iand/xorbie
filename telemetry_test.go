@@ -81,7 +81,7 @@ func TestCoordinatorReportsThroughInjectedProvider(t *testing.T) {
 	ccfg := DefaultCoordinatorConfig[tiny.Key, tiny.Node, tiny.Message]()
 	ccfg.MeterProvider = sdkmetric.NewMeterProvider(sdkmetric.WithReader(reader))
 
-	c, err := NewCoordinator[tiny.Key, tiny.Node, tiny.Message](nodes[0].NodeID, nodes[0].Router, nodes[0].RoutingTable, tiny.NodeWithCpl, ccfg)
+	c, err := NewCoordinator(nodes[0].NodeID, nodes[0].Router, nodes[0].RoutingTable, tiny.NodeWithCpl, ccfg)
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, c.Close()) })
 

@@ -56,7 +56,7 @@ func TestExhaustiveQuery(t *testing.T) {
 		// A will first ask B, B will reply with C's address (and A's address)
 		// A will then ask C, C will reply with D's address (and B's address)
 		self := nodes[0].NodeID
-		c, err := NewCoordinator[tiny.Key, tiny.Node, tiny.Message](self, nodes[0].Router, nodes[0].RoutingTable, tiny.NodeWithCpl, ccfg)
+		c, err := NewCoordinator(self, nodes[0].Router, nodes[0].RoutingTable, tiny.NodeWithCpl, ccfg)
 		require.NoError(t, err)
 		t.Cleanup(func() { require.NoError(t, c.Close()) })
 
@@ -93,7 +93,7 @@ func TestQueryReturnsClosestNodes(t *testing.T) {
 		require.NoError(t, err)
 
 		self := nodes[0].NodeID
-		c, err := NewCoordinator[tiny.Key, tiny.Node, tiny.Message](self, nodes[0].Router, nodes[0].RoutingTable, tiny.NodeWithCpl, DefaultCoordinatorConfig[tiny.Key, tiny.Node, tiny.Message]())
+		c, err := NewCoordinator(self, nodes[0].Router, nodes[0].RoutingTable, tiny.NodeWithCpl, DefaultCoordinatorConfig[tiny.Key, tiny.Node, tiny.Message]())
 		require.NoError(t, err)
 		t.Cleanup(func() { require.NoError(t, c.Close()) })
 
@@ -121,7 +121,7 @@ func TestRoutingUpdatedEventEmittedForCloserNodes(t *testing.T) {
 		// A will first ask B, B will reply with C's address (and A's address)
 		// A will then ask C, C will reply with D's address (and B's address)
 		self := nodes[0].NodeID
-		c, err := NewCoordinator[tiny.Key, tiny.Node, tiny.Message](self, nodes[0].Router, nodes[0].RoutingTable, tiny.NodeWithCpl, ccfg)
+		c, err := NewCoordinator(self, nodes[0].Router, nodes[0].RoutingTable, tiny.NodeWithCpl, ccfg)
 		require.NoError(t, err)
 		t.Cleanup(func() { require.NoError(t, c.Close()) })
 
@@ -180,7 +180,7 @@ func TestBootstrap(t *testing.T) {
 		ccfg.Routing.BootstrapPeers = []tiny.Node{nodes[1].NodeID}
 
 		self := nodes[0].NodeID
-		d, err := NewCoordinator[tiny.Key, tiny.Node, tiny.Message](self, nodes[0].Router, nodes[0].RoutingTable, tiny.NodeWithCpl, ccfg)
+		d, err := NewCoordinator(self, nodes[0].Router, nodes[0].RoutingTable, tiny.NodeWithCpl, ccfg)
 		require.NoError(t, err)
 		t.Cleanup(func() { require.NoError(t, d.Close()) })
 
@@ -232,7 +232,7 @@ func TestIncludeNode(t *testing.T) {
 		candidate := nodes[len(nodes)-1].NodeID // not in nodes[0] routing table
 
 		self := nodes[0].NodeID
-		d, err := NewCoordinator[tiny.Key, tiny.Node, tiny.Message](self, nodes[0].Router, nodes[0].RoutingTable, tiny.NodeWithCpl, ccfg)
+		d, err := NewCoordinator(self, nodes[0].Router, nodes[0].RoutingTable, tiny.NodeWithCpl, ccfg)
 		require.NoError(t, err)
 		t.Cleanup(func() { require.NoError(t, d.Close()) })
 
@@ -308,7 +308,7 @@ func TestCoordinatorTimesOutIdleQuery(t *testing.T) {
 
 		rtr := &silentRouter{}
 
-		c, err := NewCoordinator[tiny.Key, tiny.Node, tiny.Message](nodes[0].NodeID, rtr, nodes[0].RoutingTable, tiny.NodeWithCpl, ccfg)
+		c, err := NewCoordinator(nodes[0].NodeID, rtr, nodes[0].RoutingTable, tiny.NodeWithCpl, ccfg)
 		require.NoError(t, err)
 		t.Cleanup(func() { require.NoError(t, c.Close()) })
 
@@ -343,7 +343,7 @@ func TestCoordinatorExploresOnSchedule(t *testing.T) {
 
 		rtr := &silentRouter{}
 
-		c, err := NewCoordinator[tiny.Key, tiny.Node, tiny.Message](nodes[0].NodeID, rtr, nodes[0].RoutingTable, tiny.NodeWithCpl, ccfg)
+		c, err := NewCoordinator(nodes[0].NodeID, rtr, nodes[0].RoutingTable, tiny.NodeWithCpl, ccfg)
 		require.NoError(t, err)
 		t.Cleanup(func() { require.NoError(t, c.Close()) })
 
@@ -377,7 +377,7 @@ func TestCoordinatorBootstrapTimesOut(t *testing.T) {
 
 		rtr := &silentRouter{}
 
-		c, err := NewCoordinator[tiny.Key, tiny.Node, tiny.Message](nodes[0].NodeID, rtr, nodes[0].RoutingTable, tiny.NodeWithCpl, ccfg)
+		c, err := NewCoordinator(nodes[0].NodeID, rtr, nodes[0].RoutingTable, tiny.NodeWithCpl, ccfg)
 		require.NoError(t, err)
 		t.Cleanup(func() { require.NoError(t, c.Close()) })
 
@@ -401,13 +401,13 @@ func TestCoordinatorBootstrapsWhenRoutingTableEmpty(t *testing.T) {
 		require.NoError(t, err)
 
 		// a routing table of the coordinator's own, holding no nodes
-		rt, err := triert.New[tiny.Key, tiny.Node](nodes[0].NodeID, nil)
+		rt, err := triert.New(nodes[0].NodeID, nil)
 		require.NoError(t, err)
 
 		ccfg := DefaultCoordinatorConfig[tiny.Key, tiny.Node, tiny.Message]()
 		ccfg.Routing.BootstrapPeers = []tiny.Node{nodes[1].NodeID}
 
-		c, err := NewCoordinator[tiny.Key, tiny.Node, tiny.Message](nodes[0].NodeID, nodes[0].Router, rt, tiny.NodeWithCpl, ccfg)
+		c, err := NewCoordinator(nodes[0].NodeID, nodes[0].Router, rt, tiny.NodeWithCpl, ccfg)
 		require.NoError(t, err)
 		t.Cleanup(func() { require.NoError(t, c.Close()) })
 
@@ -451,7 +451,7 @@ func TestCoordinatorContinuesWhenPeerStalls(t *testing.T) {
 		_, nodes, err := linearTopology(4)
 		require.NoError(t, err)
 
-		rt, err := triert.New[tiny.Key, tiny.Node](nodes[0].NodeID, nil)
+		rt, err := triert.New(nodes[0].NodeID, nil)
 		require.NoError(t, err)
 		for _, n := range nodes[1:] {
 			require.True(t, rt.AddNode(n.NodeID))
@@ -469,7 +469,7 @@ func TestCoordinatorContinuesWhenPeerStalls(t *testing.T) {
 
 		rtr := &stallRouter{Router: nodes[0].Router, stall: nodes[1].NodeID}
 
-		c, err := NewCoordinator[tiny.Key, tiny.Node, tiny.Message](nodes[0].NodeID, rtr, rt, tiny.NodeWithCpl, ccfg)
+		c, err := NewCoordinator(nodes[0].NodeID, rtr, rt, tiny.NodeWithCpl, ccfg)
 		require.NoError(t, err)
 		t.Cleanup(func() { require.NoError(t, c.Close()) })
 

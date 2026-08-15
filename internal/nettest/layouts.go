@@ -26,7 +26,7 @@ func LinearTopology[K kad.Key[K], N kad.NodeID[K], M coordt.Message[K, N]](n int
 			return nil, nil, err
 		}
 
-		rt, err := triert.New[K, N](id, nil)
+		rt, err := triert.New(id, nil)
 		if err != nil {
 			return nil, nil, err
 		}

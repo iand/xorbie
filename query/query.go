@@ -117,7 +117,7 @@ type Query[K kad.Key[K], N kad.NodeID[K], M coordt.Message[K, N]] struct {
 
 func NewFindCloserQuery[K kad.Key[K], N kad.NodeID[K], M coordt.Message[K, N]](self N, id coordt.QueryID, target K, iter NodeIter[K, N], knownClosestNodes []N, cfg *QueryConfig) (*Query[K, N, M], error) {
 	var empty M
-	q, err := NewQuery[K, N, M](self, id, target, empty, iter, knownClosestNodes, cfg)
+	q, err := NewQuery(self, id, target, empty, iter, knownClosestNodes, cfg)
 	if err != nil {
 		return nil, err
 	}

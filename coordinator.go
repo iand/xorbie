@@ -207,12 +207,12 @@ func NewCoordinator[K kad.Key[K], N kad.NodeID[K], M coordt.Message[K, N]](
 		return nil, fmt.Errorf("query behaviour: %w", err)
 	}
 
-	routingBehaviour, err := NewRoutingBehaviour[K, N](self, rt, cplFn, &cfg.Routing)
+	routingBehaviour, err := NewRoutingBehaviour(self, rt, cplFn, &cfg.Routing)
 	if err != nil {
 		return nil, fmt.Errorf("routing behaviour: %w", err)
 	}
 
-	networkBehaviour, err := NewNetworkBehaviour[K, N, M](rtr, &cfg.Network)
+	networkBehaviour, err := NewNetworkBehaviour(rtr, &cfg.Network)
 	if err != nil {
 		return nil, fmt.Errorf("network behaviour: %w", err)
 	}
@@ -225,7 +225,7 @@ func NewCoordinator[K kad.Key[K], N kad.NodeID[K], M coordt.Message[K, N]](
 		return nil, fmt.Errorf("broadcast: %w", err)
 	}
 
-	brdcstBehaviour, err := NewPooledBroadcastBehaviour[K, N, M](b, &cfg.Brdcst)
+	brdcstBehaviour, err := NewPooledBroadcastBehaviour(b, &cfg.Brdcst)
 	if err != nil {
 		return nil, fmt.Errorf("broadcast behaviour: %w", err)
 	}

@@ -1077,7 +1077,7 @@ func TestQueryMessagesNearest(t *testing.T) {
 
 	self := tiny.NewNode(0)
 	msg := tiny.Message{Content: "msg"}
-	qry, err := NewQuery[tiny.Key, tiny.Node, tiny.Message](self, queryID, target, msg, iter, knownNodes, cfg)
+	qry, err := NewQuery(self, queryID, target, msg, iter, knownNodes, cfg)
 	require.NoError(t, err)
 
 	// first thing the new query should do is message the nearest node
@@ -1117,7 +1117,7 @@ func TestQueryMessageResponseMakesCapacity(t *testing.T) {
 
 	self := tiny.NewNode(0)
 	msg := tiny.Message{Content: "msg"}
-	qry, err := NewQuery[tiny.Key, tiny.Node, tiny.Message](self, queryID, target, msg, iter, knownNodes, cfg)
+	qry, err := NewQuery(self, queryID, target, msg, iter, knownNodes, cfg)
 	require.NoError(t, err)
 
 	// first thing the new query should do is contact the nearest node
@@ -1191,7 +1191,7 @@ func TestQueryAllNotContactedFinishes(t *testing.T) {
 
 	self := tiny.NewNode(0)
 	msg := tiny.Message{Content: "msg"}
-	qry, err := NewQuery[tiny.Key, tiny.Node, tiny.Message](self, queryID, target, msg, iter, knownNodes, cfg)
+	qry, err := NewQuery(self, queryID, target, msg, iter, knownNodes, cfg)
 	require.NoError(t, err)
 
 	// first thing the new query should do is contact the nearest node

@@ -295,7 +295,7 @@ func (p *Pool[K, N, M]) addQuery(ctx context.Context, queryID coordt.QueryID, ta
 		qryCfg.NumResults = numResults
 	}
 
-	qry, err := NewQuery[K, N, M](p.self, queryID, target, msg, iter, knownClosestNodes, qryCfg)
+	qry, err := NewQuery(p.self, queryID, target, msg, iter, knownClosestNodes, qryCfg)
 	if err != nil {
 		return fmt.Errorf("new query: %w", err)
 	}

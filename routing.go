@@ -388,7 +388,7 @@ func NewRoutingBehaviour[K kad.Key[K], N kad.NodeID[K]](self N, rt routing.Routi
 	bootstrapCfg.MinimumPopulation = cfg.BootstrapMinimumPopulation
 	bootstrapCfg.RetryInterval = cfg.BootstrapRetryInterval
 
-	bootstrap, err := routing.NewBootstrap[K](self, rt, cfg.BootstrapPeers, bootstrapCfg)
+	bootstrap, err := routing.NewBootstrap(self, rt, cfg.BootstrapPeers, bootstrapCfg)
 	if err != nil {
 		return nil, fmt.Errorf("bootstrap: %w", err)
 	}
@@ -400,7 +400,7 @@ func NewRoutingBehaviour[K kad.Key[K], N kad.NodeID[K]](self N, rt routing.Routi
 	includeCfg.QueueCapacity = cfg.IncludeQueueCapacity
 	includeCfg.Concurrency = cfg.IncludeRequestConcurrency
 
-	include, err := routing.NewInclude[K, N](rt, includeCfg)
+	include, err := routing.NewInclude(rt, includeCfg)
 	if err != nil {
 		return nil, fmt.Errorf("include: %w", err)
 	}
@@ -412,7 +412,7 @@ func NewRoutingBehaviour[K kad.Key[K], N kad.NodeID[K]](self N, rt routing.Routi
 	probeCfg.Concurrency = cfg.ProbeRequestConcurrency
 	probeCfg.CheckInterval = cfg.ProbeCheckInterval
 
-	probe, err := routing.NewProbe[K](rt, probeCfg)
+	probe, err := routing.NewProbe(rt, probeCfg)
 	if err != nil {
 		return nil, fmt.Errorf("probe: %w", err)
 	}
@@ -429,7 +429,7 @@ func NewRoutingBehaviour[K kad.Key[K], N kad.NodeID[K]](self N, rt routing.Routi
 		return nil, fmt.Errorf("explore schedule: %w", err)
 	}
 
-	explore, err := routing.NewExplore[K](self, rt, cplFn, schedule, exploreCfg)
+	explore, err := routing.NewExplore(self, rt, cplFn, schedule, exploreCfg)
 	if err != nil {
 		return nil, fmt.Errorf("explore: %w", err)
 	}

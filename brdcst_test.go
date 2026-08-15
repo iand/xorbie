@@ -30,7 +30,7 @@ func TestBroadcastBehaviourContactsAllSeeds(t *testing.T) {
 	pool, err := brdcst.NewPool[tiny.Key, tiny.Node, tiny.Message](self, nil)
 	require.NoError(t, err)
 
-	b, err := NewPooledBroadcastBehaviour[tiny.Key, tiny.Node, tiny.Message](pool, nil)
+	b, err := NewPooledBroadcastBehaviour(pool, nil)
 	require.NoError(t, err)
 
 	seeds := []tiny.Node{
@@ -81,7 +81,7 @@ func TestBroadcastBehaviourReportsDroppedBroadcastStart(t *testing.T) {
 	cfg := DefaultBroadcastConfig[tiny.Key, tiny.Node, tiny.Message]()
 	cfg.QueueCapacity = 1
 
-	b, err := NewPooledBroadcastBehaviour[tiny.Key, tiny.Node, tiny.Message](pool, cfg)
+	b, err := NewPooledBroadcastBehaviour(pool, cfg)
 	require.NoError(t, err)
 
 	// take the queue's only place

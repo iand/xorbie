@@ -30,7 +30,7 @@ func TestNetworkBehaviourDropsRequestsBeyondNodeCapacity(t *testing.T) {
 
 	// the router never answers, so the first request holds the peer's only slot for the
 	// rest of the test
-	b, err := NewNetworkBehaviour[tiny.Key, tiny.Node, tiny.Message](&silentRouter{}, cfg)
+	b, err := NewNetworkBehaviour(&silentRouter{}, cfg)
 	require.NoError(t, err)
 	t.Cleanup(b.Close)
 
@@ -95,7 +95,7 @@ func TestNetworkBehaviourEvictsIdleNodeHandlers(t *testing.T) {
 
 		cfg := DefaultNetworkConfig()
 
-		b, err := NewNetworkBehaviour[tiny.Key, tiny.Node, tiny.Message](&promptRouter{}, cfg)
+		b, err := NewNetworkBehaviour(&promptRouter{}, cfg)
 		require.NoError(t, err)
 		t.Cleanup(b.Close)
 
@@ -160,7 +160,7 @@ func TestNetworkBehaviourKeepsBusyNodeHandlers(t *testing.T) {
 		cfg := DefaultNetworkConfig()
 
 		rtr := &blockingRouter{release: make(chan struct{})}
-		b, err := NewNetworkBehaviour[tiny.Key, tiny.Node, tiny.Message](rtr, cfg)
+		b, err := NewNetworkBehaviour(rtr, cfg)
 		require.NoError(t, err)
 		t.Cleanup(b.Close)
 
@@ -200,7 +200,7 @@ func TestEvictIdleRefusesBusyHandler(t *testing.T) {
 		require.NoError(t, err)
 
 		rtr := &blockingRouter{release: make(chan struct{})}
-		b, err := NewNetworkBehaviour[tiny.Key, tiny.Node, tiny.Message](rtr, DefaultNetworkConfig())
+		b, err := NewNetworkBehaviour(rtr, DefaultNetworkConfig())
 		require.NoError(t, err)
 		t.Cleanup(b.Close)
 
@@ -244,7 +244,7 @@ func TestNetworkBehaviourReportsInFlightRequests(t *testing.T) {
 
 	// the router never answers, so every request stays in flight for the whole test
 	rtr := &blockingRouter{release: make(chan struct{})}
-	b, err := NewNetworkBehaviour[tiny.Key, tiny.Node, tiny.Message](rtr, cfg)
+	b, err := NewNetworkBehaviour(rtr, cfg)
 	require.NoError(t, err)
 	t.Cleanup(b.Close)
 

@@ -18,7 +18,7 @@ import (
 // emptyRoutingTable returns a routing table that contains no nodes.
 func emptyRoutingTable(t *testing.T, self tiny.Node) kad.RoutingTable[tiny.Key, tiny.Node] {
 	t.Helper()
-	rt, err := triert.New[tiny.Key, tiny.Node](self, nil)
+	rt, err := triert.New(self, nil)
 	require.NoError(t, err)
 	return rt
 }
@@ -72,7 +72,7 @@ func TestBootstrapStartsIdle(t *testing.T) {
 	cfg := DefaultBootstrapConfig()
 
 	self := tiny.NewNode(0)
-	bs, err := NewBootstrap[tiny.Key](self, emptyRoutingTable(t, self), nil, cfg)
+	bs, err := NewBootstrap(self, emptyRoutingTable(t, self), nil, cfg)
 	require.NoError(t, err)
 
 	state := bs.Advance(ctx, now, &EventBootstrapPoll{})
@@ -85,7 +85,7 @@ func TestBootstrapStart(t *testing.T) {
 	cfg := DefaultBootstrapConfig()
 
 	self := tiny.NewNode(0)
-	bs, err := NewBootstrap[tiny.Key](self, emptyRoutingTable(t, self), nil, cfg)
+	bs, err := NewBootstrap(self, emptyRoutingTable(t, self), nil, cfg)
 	require.NoError(t, err)
 
 	a := tiny.NewNode(0b00000100) // 4
@@ -119,7 +119,7 @@ func TestBootstrapMessageResponse(t *testing.T) {
 	cfg := DefaultBootstrapConfig()
 
 	self := tiny.NewNode(0)
-	bs, err := NewBootstrap[tiny.Key](self, emptyRoutingTable(t, self), nil, cfg)
+	bs, err := NewBootstrap(self, emptyRoutingTable(t, self), nil, cfg)
 	require.NoError(t, err)
 
 	a := tiny.NewNode(0b00000100) // 4
@@ -155,7 +155,7 @@ func TestBootstrapProgress(t *testing.T) {
 	cfg.RequestConcurrency = 3 // 1 less than the 4 nodes to be visited
 
 	self := tiny.NewNode(0)
-	bs, err := NewBootstrap[tiny.Key](self, emptyRoutingTable(t, self), nil, cfg)
+	bs, err := NewBootstrap(self, emptyRoutingTable(t, self), nil, cfg)
 	require.NoError(t, err)
 
 	a := tiny.NewNode(0b00000100) // 4
@@ -240,7 +240,7 @@ func TestBootstrapFinishesThenGoesIdle(t *testing.T) {
 	cfg := DefaultBootstrapConfig()
 
 	self := tiny.NewNode(0)
-	bs, err := NewBootstrap[tiny.Key](self, emptyRoutingTable(t, self), nil, cfg)
+	bs, err := NewBootstrap(self, emptyRoutingTable(t, self), nil, cfg)
 	require.NoError(t, err)
 
 	a := tiny.NewNode(0b00000100) // 4
@@ -277,7 +277,7 @@ func TestBootstrapFinishedIgnoresLaterResponses(t *testing.T) {
 	cfg := DefaultBootstrapConfig()
 
 	self := tiny.NewNode(0)
-	bs, err := NewBootstrap[tiny.Key](self, emptyRoutingTable(t, self), nil, cfg)
+	bs, err := NewBootstrap(self, emptyRoutingTable(t, self), nil, cfg)
 	require.NoError(t, err)
 
 	a := tiny.NewNode(4)
@@ -333,7 +333,7 @@ func TestBootstrapFinishedIgnoresLaterFailures(t *testing.T) {
 	cfg := DefaultBootstrapConfig()
 
 	self := tiny.NewNode(0)
-	bs, err := NewBootstrap[tiny.Key](self, emptyRoutingTable(t, self), nil, cfg)
+	bs, err := NewBootstrap(self, emptyRoutingTable(t, self), nil, cfg)
 	require.NoError(t, err)
 
 	a := tiny.NewNode(4)
@@ -394,7 +394,7 @@ func TestBootstrapTimeout(t *testing.T) {
 	cfg.RequestTimeout = time.Hour
 
 	self := tiny.NewNode(0)
-	bs, err := NewBootstrap[tiny.Key](self, emptyRoutingTable(t, self), nil, cfg)
+	bs, err := NewBootstrap(self, emptyRoutingTable(t, self), nil, cfg)
 	require.NoError(t, err)
 
 	a := tiny.NewNode(0b00000100) // 4
@@ -423,7 +423,7 @@ func TestBootstrapReportsNextDue(t *testing.T) {
 	cfg.RequestTimeout = time.Minute
 
 	self := tiny.NewNode(0)
-	bs, err := NewBootstrap[tiny.Key](self, emptyRoutingTable(t, self), nil, cfg)
+	bs, err := NewBootstrap(self, emptyRoutingTable(t, self), nil, cfg)
 	require.NoError(t, err)
 
 	// nothing running, nothing due
@@ -449,7 +449,7 @@ func TestBootstrapReportsOwnDeadlineWhenSooner(t *testing.T) {
 	cfg.RequestTimeout = time.Hour
 
 	self := tiny.NewNode(0)
-	bs, err := NewBootstrap[tiny.Key](self, emptyRoutingTable(t, self), nil, cfg)
+	bs, err := NewBootstrap(self, emptyRoutingTable(t, self), nil, cfg)
 	require.NoError(t, err)
 
 	state := bs.Advance(ctx, now, &EventBootstrapStart[tiny.Key, tiny.Node]{
@@ -477,7 +477,7 @@ func TestBootstrapTimeoutReleasesQuery(t *testing.T) {
 	cfg.RequestTimeout = time.Hour
 
 	self := tiny.NewNode(0)
-	bs, err := NewBootstrap[tiny.Key](self, emptyRoutingTable(t, self), nil, cfg)
+	bs, err := NewBootstrap(self, emptyRoutingTable(t, self), nil, cfg)
 	require.NoError(t, err)
 
 	a := tiny.NewNode(4)
@@ -512,7 +512,7 @@ func TestBootstrapTimeoutReleasesQuery(t *testing.T) {
 // populatedRoutingTable returns a routing table containing n nodes.
 func populatedRoutingTable(t *testing.T, self tiny.Node, n int) kad.RoutingTable[tiny.Key, tiny.Node] {
 	t.Helper()
-	rt, err := triert.New[tiny.Key, tiny.Node](self, nil)
+	rt, err := triert.New(self, nil)
 	require.NoError(t, err)
 	for i := 1; i <= n; i++ {
 		require.True(t, rt.AddNode(tiny.NewNode(tiny.Key(i))))
@@ -531,7 +531,7 @@ func TestBootstrapStartsWhenPopulationLow(t *testing.T) {
 	self := tiny.NewNode(0)
 	seed := tiny.NewNode(4)
 
-	bs, err := NewBootstrap[tiny.Key](self, emptyRoutingTable(t, self), []tiny.Node{seed}, cfg)
+	bs, err := NewBootstrap(self, emptyRoutingTable(t, self), []tiny.Node{seed}, cfg)
 	require.NoError(t, err)
 
 	// no start event is sent, the empty routing table is the only prompt
@@ -551,7 +551,7 @@ func TestBootstrapDoesNotStartWhenPopulated(t *testing.T) {
 	self := tiny.NewNode(0)
 	seed := tiny.NewNode(4)
 
-	bs, err := NewBootstrap[tiny.Key](self, populatedRoutingTable(t, self, 2), []tiny.Node{seed}, cfg)
+	bs, err := NewBootstrap(self, populatedRoutingTable(t, self, 2), []tiny.Node{seed}, cfg)
 	require.NoError(t, err)
 
 	state := bs.Advance(ctx, now, &EventBootstrapPoll{})
@@ -572,7 +572,7 @@ func TestBootstrapWaitsRetryIntervalBeforeStartingAgain(t *testing.T) {
 	self := tiny.NewNode(0)
 	seed := tiny.NewNode(4)
 
-	bs, err := NewBootstrap[tiny.Key](self, emptyRoutingTable(t, self), []tiny.Node{seed}, cfg)
+	bs, err := NewBootstrap(self, emptyRoutingTable(t, self), []tiny.Node{seed}, cfg)
 	require.NoError(t, err)
 
 	state := bs.Advance(ctx, now, &EventBootstrapPoll{})
@@ -608,7 +608,7 @@ func TestBootstrapZeroMinimumPopulationDisablesAutomaticStart(t *testing.T) {
 	self := tiny.NewNode(0)
 	seed := tiny.NewNode(4)
 
-	bs, err := NewBootstrap[tiny.Key](self, emptyRoutingTable(t, self), []tiny.Node{seed}, cfg)
+	bs, err := NewBootstrap(self, emptyRoutingTable(t, self), []tiny.Node{seed}, cfg)
 	require.NoError(t, err)
 
 	state := bs.Advance(ctx, now, &EventBootstrapPoll{})

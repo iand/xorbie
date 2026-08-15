@@ -213,7 +213,7 @@ func TestRoutingStartBootstrapSendsEvent(t *testing.T) {
 	bootstrap := NewRecordingSM[routing.BootstrapEvent, routing.BootstrapState](&routing.StateBootstrapIdle{})
 
 	cfg := DefaultRoutingConfig[tiny.Key, tiny.Node]()
-	routingBehaviour, err := ComposeRoutingBehaviour[tiny.Key, tiny.Node](self, bootstrap, idleInclude(), idleProbe(), idleExplore(), cfg)
+	routingBehaviour, err := ComposeRoutingBehaviour(self, bootstrap, idleInclude(), idleProbe(), idleExplore(), cfg)
 	require.NoError(t, err)
 
 	ev := &EventStartBootstrap[tiny.Key, tiny.Node]{
@@ -249,11 +249,11 @@ func TestRoutingBootstrapRequestConcurrency(t *testing.T) {
 	bcfg := routing.DefaultBootstrapConfig()
 	bcfg.RequestConcurrency = 3
 
-	bootstrap, err := routing.NewBootstrap[tiny.Key](self, nodes[0].RoutingTable, nil, bcfg)
+	bootstrap, err := routing.NewBootstrap(self, nodes[0].RoutingTable, nil, bcfg)
 	require.NoError(t, err)
 
 	cfg := DefaultRoutingConfig[tiny.Key, tiny.Node]()
-	routingBehaviour, err := ComposeRoutingBehaviour[tiny.Key, tiny.Node](self, bootstrap, idleInclude(), idleProbe(), idleExplore(), cfg)
+	routingBehaviour, err := ComposeRoutingBehaviour(self, bootstrap, idleInclude(), idleProbe(), idleExplore(), cfg)
 	require.NoError(t, err)
 
 	routingBehaviour.Notify(ctx, &EventStartBootstrap[tiny.Key, tiny.Node]{
@@ -290,7 +290,7 @@ func TestRoutingBootstrapGetClosestNodesSuccess(t *testing.T) {
 	bootstrap := NewRecordingSM[routing.BootstrapEvent, routing.BootstrapState](&routing.StateBootstrapIdle{})
 
 	cfg := DefaultRoutingConfig[tiny.Key, tiny.Node]()
-	routingBehaviour, err := ComposeRoutingBehaviour[tiny.Key, tiny.Node](self, bootstrap, idleInclude(), idleProbe(), idleExplore(), cfg)
+	routingBehaviour, err := ComposeRoutingBehaviour(self, bootstrap, idleInclude(), idleProbe(), idleExplore(), cfg)
 	require.NoError(t, err)
 
 	ev := &EventGetCloserNodesSuccess[tiny.Key, tiny.Node]{
@@ -323,7 +323,7 @@ func TestRoutingBootstrapGetClosestNodesFailure(t *testing.T) {
 	bootstrap := NewRecordingSM[routing.BootstrapEvent, routing.BootstrapState](&routing.StateBootstrapIdle{})
 
 	cfg := DefaultRoutingConfig[tiny.Key, tiny.Node]()
-	routingBehaviour, err := ComposeRoutingBehaviour[tiny.Key, tiny.Node](self, bootstrap, idleInclude(), idleProbe(), idleExplore(), cfg)
+	routingBehaviour, err := ComposeRoutingBehaviour(self, bootstrap, idleInclude(), idleProbe(), idleExplore(), cfg)
 	require.NoError(t, err)
 
 	failure := errors.New("failed")
@@ -357,7 +357,7 @@ func TestRoutingAddNodeInfoSendsEvent(t *testing.T) {
 	include := NewRecordingSM[routing.IncludeEvent, routing.IncludeState](&routing.StateIncludeIdle{})
 
 	cfg := DefaultRoutingConfig[tiny.Key, tiny.Node]()
-	routingBehaviour, err := ComposeRoutingBehaviour[tiny.Key, tiny.Node](self, idleBootstrap(), include, idleProbe(), idleExplore(), cfg)
+	routingBehaviour, err := ComposeRoutingBehaviour(self, idleBootstrap(), include, idleProbe(), idleExplore(), cfg)
 	require.NoError(t, err)
 
 	ev := &EventAddNode[tiny.Key, tiny.Node]{
@@ -386,7 +386,7 @@ func TestRoutingIncludeGetClosestNodesSuccess(t *testing.T) {
 	include := NewRecordingSM[routing.IncludeEvent, routing.IncludeState](&routing.StateIncludeIdle{})
 
 	cfg := DefaultRoutingConfig[tiny.Key, tiny.Node]()
-	routingBehaviour, err := ComposeRoutingBehaviour[tiny.Key, tiny.Node](self, idleBootstrap(), include, idleProbe(), idleExplore(), cfg)
+	routingBehaviour, err := ComposeRoutingBehaviour(self, idleBootstrap(), include, idleProbe(), idleExplore(), cfg)
 	require.NoError(t, err)
 
 	ev := &EventGetCloserNodesSuccess[tiny.Key, tiny.Node]{
@@ -418,7 +418,7 @@ func TestRoutingIncludeGetClosestNodesFailure(t *testing.T) {
 	include := NewRecordingSM[routing.IncludeEvent, routing.IncludeState](&routing.StateIncludeIdle{})
 
 	cfg := DefaultRoutingConfig[tiny.Key, tiny.Node]()
-	routingBehaviour, err := ComposeRoutingBehaviour[tiny.Key, tiny.Node](self, idleBootstrap(), include, idleProbe(), idleExplore(), cfg)
+	routingBehaviour, err := ComposeRoutingBehaviour(self, idleBootstrap(), include, idleProbe(), idleExplore(), cfg)
 	require.NoError(t, err)
 
 	failure := errors.New("failed")
@@ -453,16 +453,16 @@ func TestRoutingIncludedNodeAddToProbeList(t *testing.T) {
 		rt := nodes[0].RoutingTable
 
 		includeCfg := routing.DefaultIncludeConfig()
-		include, err := routing.NewInclude[tiny.Key, tiny.Node](rt, includeCfg)
+		include, err := routing.NewInclude(rt, includeCfg)
 		require.NoError(t, err)
 
 		probeCfg := routing.DefaultProbeConfig()
 		probeCfg.CheckInterval = 5 * time.Minute
-		probe, err := routing.NewProbe[tiny.Key](rt, probeCfg)
+		probe, err := routing.NewProbe(rt, probeCfg)
 		require.NoError(t, err)
 
 		cfg := DefaultRoutingConfig[tiny.Key, tiny.Node]()
-		routingBehaviour, err := ComposeRoutingBehaviour[tiny.Key, tiny.Node](self, idleBootstrap(), include, probe, idleExplore(), cfg)
+		routingBehaviour, err := ComposeRoutingBehaviour(self, idleBootstrap(), include, probe, idleExplore(), cfg)
 		require.NoError(t, err)
 
 		// a new node to be included
@@ -507,7 +507,7 @@ func TestRoutingIncludedNodeAddToProbeList(t *testing.T) {
 		require.IsType(t, &EventRoutingUpdated[tiny.Key, tiny.Node]{}, dev)
 
 		// drain any pending work
-		DrainBehaviour[BehaviourEvent, BehaviourEvent](t, ctx, routingBehaviour)
+		DrainBehaviour(t, ctx, routingBehaviour)
 
 		// advance time past the probe check interval
 		time.Sleep(probeCfg.CheckInterval)
@@ -541,11 +541,11 @@ func TestRoutingExploreSendsEvent(t *testing.T) {
 	// make sure the explore starts as soon as the explore state machine is polled
 	schedule := routing.NewNoWaitExploreSchedule(maxCpl)
 
-	explore, err := routing.NewExplore[tiny.Key](self, rt, tiny.NodeWithCpl, schedule, exploreCfg)
+	explore, err := routing.NewExplore(self, rt, tiny.NodeWithCpl, schedule, exploreCfg)
 	require.NoError(t, err)
 
 	cfg := DefaultRoutingConfig[tiny.Key, tiny.Node]()
-	routingBehaviour, err := ComposeRoutingBehaviour[tiny.Key, tiny.Node](self, idleBootstrap(), idleInclude(), idleProbe(), explore, cfg)
+	routingBehaviour, err := ComposeRoutingBehaviour(self, idleBootstrap(), idleInclude(), idleProbe(), explore, cfg)
 	require.NoError(t, err)
 
 	routingBehaviour.Notify(ctx, &EventRoutingPoll{})
@@ -576,7 +576,7 @@ func TestRoutingExploreGetClosestNodesSuccess(t *testing.T) {
 	explore := NewRecordingSM[routing.ExploreEvent, routing.ExploreState](&routing.StateExploreIdle{})
 
 	cfg := DefaultRoutingConfig[tiny.Key, tiny.Node]()
-	routingBehaviour, err := ComposeRoutingBehaviour[tiny.Key, tiny.Node](self, idleBootstrap(), idleInclude(), idleProbe(), explore, cfg)
+	routingBehaviour, err := ComposeRoutingBehaviour(self, idleBootstrap(), idleInclude(), idleProbe(), explore, cfg)
 	require.NoError(t, err)
 
 	ev := &EventGetCloserNodesSuccess[tiny.Key, tiny.Node]{
@@ -608,7 +608,7 @@ func TestRoutingExploreGetClosestNodesFailure(t *testing.T) {
 	explore := NewRecordingSM[routing.ExploreEvent, routing.ExploreState](&routing.StateExploreIdle{})
 
 	cfg := DefaultRoutingConfig[tiny.Key, tiny.Node]()
-	routingBehaviour, err := ComposeRoutingBehaviour[tiny.Key, tiny.Node](self, idleBootstrap(), idleInclude(), idleProbe(), explore, cfg)
+	routingBehaviour, err := ComposeRoutingBehaviour(self, idleBootstrap(), idleInclude(), idleProbe(), explore, cfg)
 	require.NoError(t, err)
 
 	failure := errors.New("failed")
@@ -647,10 +647,10 @@ func TestRoutingProbeKeepsNodeWhenCheckDropped(t *testing.T) {
 		// the check has to fall due inside the test's own deadline
 		probeCfg.CheckInterval = 2 * time.Second
 
-		probe, err := routing.NewProbe[tiny.Key](rt, probeCfg)
+		probe, err := routing.NewProbe(rt, probeCfg)
 		require.NoError(t, err)
 
-		routingBehaviour, err := ComposeRoutingBehaviour[tiny.Key, tiny.Node](self, idleBootstrap(), idleInclude(), probe, idleExplore(), DefaultRoutingConfig[tiny.Key, tiny.Node]())
+		routingBehaviour, err := ComposeRoutingBehaviour(self, idleBootstrap(), idleInclude(), probe, idleExplore(), DefaultRoutingConfig[tiny.Key, tiny.Node]())
 		require.NoError(t, err)
 
 		// the linear topology puts the second node in the first node's routing table

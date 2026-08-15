@@ -118,11 +118,11 @@ func TestExploreStartsIdle(t *testing.T) {
 	cfg := DefaultExploreConfig()
 
 	self := tiny.NewNode(128)
-	rt, err := triert.New[tiny.Key, tiny.Node](self, nil)
+	rt, err := triert.New(self, nil)
 	require.NoError(t, err)
 
 	schedule := DefaultDynamicSchedule(t, now)
-	ex, err := NewExplore[tiny.Key, tiny.Node](self, rt, tiny.NodeWithCpl, schedule, cfg)
+	ex, err := NewExplore(self, rt, tiny.NodeWithCpl, schedule, cfg)
 	require.NoError(t, err)
 
 	state := ex.Advance(ctx, now, &EventExplorePoll{})
@@ -135,7 +135,7 @@ func TestExploreFirstQueriesForMaximumCpl(t *testing.T) {
 	cfg := DefaultExploreConfig()
 
 	self := tiny.NewNode(128)
-	rt, err := triert.New[tiny.Key, tiny.Node](self, nil)
+	rt, err := triert.New(self, nil)
 	require.NoError(t, err)
 
 	// populate the routing table with at least one node
@@ -143,7 +143,7 @@ func TestExploreFirstQueriesForMaximumCpl(t *testing.T) {
 	rt.AddNode(a)
 
 	schedule := DefaultDynamicSchedule(t, now)
-	ex, err := NewExplore[tiny.Key, tiny.Node](self, rt, tiny.NodeWithCpl, schedule, cfg)
+	ex, err := NewExplore(self, rt, tiny.NodeWithCpl, schedule, cfg)
 	require.NoError(t, err)
 
 	state := ex.Advance(ctx, now, &EventExplorePoll{})
@@ -183,7 +183,7 @@ func TestExploreFindCloserResponse(t *testing.T) {
 	cfg := DefaultExploreConfig()
 
 	self := tiny.NewNode(128)
-	rt, err := triert.New[tiny.Key, tiny.Node](self, nil)
+	rt, err := triert.New(self, nil)
 	require.NoError(t, err)
 
 	// populate the routing table with at least one node
@@ -193,7 +193,7 @@ func TestExploreFindCloserResponse(t *testing.T) {
 	start := now
 
 	schedule := DefaultDynamicSchedule(t, now)
-	ex, err := NewExplore[tiny.Key, tiny.Node](self, rt, tiny.NodeWithCpl, schedule, cfg)
+	ex, err := NewExplore(self, rt, tiny.NodeWithCpl, schedule, cfg)
 	require.NoError(t, err)
 
 	state := ex.Advance(ctx, now, &EventExplorePoll{})
@@ -225,7 +225,7 @@ func TestExploreFindCloserFailure(t *testing.T) {
 	cfg := DefaultExploreConfig()
 
 	self := tiny.NewNode(128)
-	rt, err := triert.New[tiny.Key, tiny.Node](self, nil)
+	rt, err := triert.New(self, nil)
 	require.NoError(t, err)
 
 	// populate the routing table with at least one node
@@ -235,7 +235,7 @@ func TestExploreFindCloserFailure(t *testing.T) {
 	start := now
 
 	schedule := DefaultDynamicSchedule(t, now)
-	ex, err := NewExplore[tiny.Key, tiny.Node](self, rt, tiny.NodeWithCpl, schedule, cfg)
+	ex, err := NewExplore(self, rt, tiny.NodeWithCpl, schedule, cfg)
 	require.NoError(t, err)
 
 	state := ex.Advance(ctx, now, &EventExplorePoll{})
@@ -267,7 +267,7 @@ func TestExploreProgress(t *testing.T) {
 	cfg := DefaultExploreConfig()
 
 	self := tiny.NewNode(128)
-	rt, err := triert.New[tiny.Key, tiny.Node](self, nil)
+	rt, err := triert.New(self, nil)
 	require.NoError(t, err)
 
 	a := tiny.NewNode(4)  // 4
@@ -284,7 +284,7 @@ func TestExploreProgress(t *testing.T) {
 	start := now
 
 	schedule := DefaultDynamicSchedule(t, now)
-	ex, err := NewExplore[tiny.Key, tiny.Node](self, rt, tiny.NodeWithCpl, schedule, cfg)
+	ex, err := NewExplore(self, rt, tiny.NodeWithCpl, schedule, cfg)
 	require.NoError(t, err)
 
 	state := ex.Advance(ctx, now, &EventExplorePoll{})
@@ -342,7 +342,7 @@ func TestExploreQueriesNextHighestCpl(t *testing.T) {
 	cfg := DefaultExploreConfig()
 
 	self := tiny.NewNode(128)
-	rt, err := triert.New[tiny.Key, tiny.Node](self, nil)
+	rt, err := triert.New(self, nil)
 	require.NoError(t, err)
 
 	// populate the routing table with at least one node
@@ -352,7 +352,7 @@ func TestExploreQueriesNextHighestCpl(t *testing.T) {
 	start := now
 
 	schedule := DefaultDynamicSchedule(t, now)
-	ex, err := NewExplore[tiny.Key, tiny.Node](self, rt, tiny.NodeWithCpl, schedule, cfg)
+	ex, err := NewExplore(self, rt, tiny.NodeWithCpl, schedule, cfg)
 	require.NoError(t, err)
 
 	state := ex.Advance(ctx, now, &EventExplorePoll{})
@@ -419,14 +419,14 @@ func TestExploreQueryTimeout(t *testing.T) {
 	cfg.RequestTimeout = time.Hour
 
 	self := tiny.NewNode(128)
-	rt, err := triert.New[tiny.Key, tiny.Node](self, nil)
+	rt, err := triert.New(self, nil)
 	require.NoError(t, err)
 
 	a := tiny.NewNode(4)
 	rt.AddNode(a)
 
 	schedule := DefaultDynamicSchedule(t, now)
-	ex, err := NewExplore[tiny.Key, tiny.Node](self, rt, tiny.NodeWithCpl, schedule, cfg)
+	ex, err := NewExplore(self, rt, tiny.NodeWithCpl, schedule, cfg)
 	require.NoError(t, err)
 
 	// advance the clock to the due time of the first explore so a query starts
@@ -451,12 +451,12 @@ func TestExploreReportsNextDue(t *testing.T) {
 	cfg := DefaultExploreConfig()
 
 	self := tiny.NewNode(128)
-	rt, err := triert.New[tiny.Key, tiny.Node](self, nil)
+	rt, err := triert.New(self, nil)
 	require.NoError(t, err)
 	rt.AddNode(tiny.NewNode(4))
 
 	schedule := DefaultDynamicSchedule(t, now)
-	ex, err := NewExplore[tiny.Key, tiny.Node](self, rt, tiny.NodeWithCpl, schedule, cfg)
+	ex, err := NewExplore(self, rt, tiny.NodeWithCpl, schedule, cfg)
 	require.NoError(t, err)
 
 	// while idle the reported time is when the next cpl falls due

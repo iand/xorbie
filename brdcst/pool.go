@@ -124,9 +124,9 @@ func (p *Pool[K, N, M]) handleEvent(ctx context.Context, ev PoolEvent) (sm Broad
 		// first initialize the state machine for the broadcast desired strategy
 		switch cfg := ev.Config.(type) {
 		case *ConfigFollowUp:
-			p.bcs[ev.QueryID] = NewFollowUp[K, N, M](ev.QueryID, p.qp, ev.Message, cfg, p.cfg.Tracer)
+			p.bcs[ev.QueryID] = NewFollowUp(ev.QueryID, p.qp, ev.Message, cfg, p.cfg.Tracer)
 		case *ConfigStatic:
-			p.bcs[ev.QueryID] = NewStatic[K, N, M](ev.QueryID, ev.Message, cfg, p.cfg.Tracer)
+			p.bcs[ev.QueryID] = NewStatic(ev.QueryID, ev.Message, cfg, p.cfg.Tracer)
 		case *ConfigOptimistic:
 			panic("implement me")
 		}

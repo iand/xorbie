@@ -63,10 +63,10 @@ func TestProbeStartsIdle(t *testing.T) {
 	now := epoch
 	cfg := DefaultProbeConfig()
 
-	rt, err := triert.New[tiny.Key, tiny.Node](tiny.NewNode(128), nil)
+	rt, err := triert.New(tiny.NewNode(128), nil)
 	require.NoError(t, err)
 
-	bs, err := NewProbe[tiny.Key, tiny.Node](rt, cfg)
+	bs, err := NewProbe(rt, cfg)
 	require.NoError(t, err)
 
 	state := bs.Advance(ctx, now, &EventProbePoll{})
@@ -83,9 +83,9 @@ func TestProbeAddChecksPresenceInRoutingTable(t *testing.T) {
 	// Set concurrency to allow one check to run
 	cfg.Concurrency = 1
 
-	rt, err := triert.New[tiny.Key, tiny.Node](tiny.NewNode(128), nil)
+	rt, err := triert.New(tiny.NewNode(128), nil)
 	require.NoError(t, err)
-	sm, err := NewProbe[tiny.Key, tiny.Node](rt, cfg)
+	sm, err := NewProbe(rt, cfg)
 	require.NoError(t, err)
 
 	// Add node that isn't in routing table
@@ -112,11 +112,11 @@ func TestProbeAddStartsCheckIfCapacity(t *testing.T) {
 	// Set concurrency to allow one check to run
 	cfg.Concurrency = 1
 
-	rt, err := triert.New[tiny.Key, tiny.Node](tiny.NewNode(128), nil)
+	rt, err := triert.New(tiny.NewNode(128), nil)
 	require.NoError(t, err)
 	rt.AddNode(tiny.NewNode(4))
 
-	sm, err := NewProbe[tiny.Key, tiny.Node](rt, cfg)
+	sm, err := NewProbe(rt, cfg)
 	require.NoError(t, err)
 
 	// after adding first node the probe should be idle since the
@@ -152,13 +152,13 @@ func TestProbeAddManyStartsChecksIfCapacity(t *testing.T) {
 	// Set concurrency lower than the number of nodes
 	cfg.Concurrency = 2
 
-	rt, err := triert.New[tiny.Key, tiny.Node](tiny.NewNode(128), nil)
+	rt, err := triert.New(tiny.NewNode(128), nil)
 	require.NoError(t, err)
 	rt.AddNode(tiny.NewNode(4))
 	rt.AddNode(tiny.NewNode(3))
 	rt.AddNode(tiny.NewNode(2))
 
-	sm, err := NewProbe[tiny.Key, tiny.Node](rt, cfg)
+	sm, err := NewProbe(rt, cfg)
 	require.NoError(t, err)
 
 	// after adding first node the probe should be idle since the
@@ -216,11 +216,11 @@ func TestProbeAddReportsCapacity(t *testing.T) {
 	// Set concurrency to allow more than one check to run
 	cfg.Concurrency = 2
 
-	rt, err := triert.New[tiny.Key, tiny.Node](tiny.NewNode(128), nil)
+	rt, err := triert.New(tiny.NewNode(128), nil)
 	require.NoError(t, err)
 	rt.AddNode(tiny.NewNode(4))
 
-	sm, err := NewProbe[tiny.Key, tiny.Node](rt, cfg)
+	sm, err := NewProbe(rt, cfg)
 	require.NoError(t, err)
 
 	// after adding first node the probe should be idle since the
@@ -259,11 +259,11 @@ func TestProbeRemoveDeletesNodeValue(t *testing.T) {
 	// Set concurrency to allow more than one check to run
 	cfg.Concurrency = 2
 
-	rt, err := triert.New[tiny.Key, tiny.Node](tiny.NewNode(128), nil)
+	rt, err := triert.New(tiny.NewNode(128), nil)
 	require.NoError(t, err)
 	rt.AddNode(tiny.NewNode(4))
 
-	sm, err := NewProbe[tiny.Key, tiny.Node](rt, cfg)
+	sm, err := NewProbe(rt, cfg)
 	require.NoError(t, err)
 
 	// after adding first node the probe should be idle since the
@@ -619,11 +619,11 @@ func TestProbeConnectivityCheckSuccess(t *testing.T) {
 	// Set concurrency to allow more than one check to run
 	cfg.Concurrency = 2
 
-	rt, err := triert.New[tiny.Key, tiny.Node](tiny.NewNode(128), nil)
+	rt, err := triert.New(tiny.NewNode(128), nil)
 	require.NoError(t, err)
 	rt.AddNode(tiny.NewNode(4))
 
-	sm, err := NewProbe[tiny.Key, tiny.Node](rt, cfg)
+	sm, err := NewProbe(rt, cfg)
 	require.NoError(t, err)
 
 	// after adding first node the probe should be idle since the
@@ -677,11 +677,11 @@ func TestProbeConnectivityCheckFailure(t *testing.T) {
 	// Set concurrency to allow more than one check to run
 	cfg.Concurrency = 2
 
-	rt, err := triert.New[tiny.Key, tiny.Node](tiny.NewNode(128), nil)
+	rt, err := triert.New(tiny.NewNode(128), nil)
 	require.NoError(t, err)
 	rt.AddNode(tiny.NewNode(4))
 
-	sm, err := NewProbe[tiny.Key, tiny.Node](rt, cfg)
+	sm, err := NewProbe(rt, cfg)
 	require.NoError(t, err)
 
 	// after adding first node the probe should be idle since the
@@ -731,12 +731,12 @@ func TestProbeNotifyConnectivity(t *testing.T) {
 	cfg.CheckInterval = 10 * time.Minute
 	cfg.Concurrency = 2
 
-	rt, err := triert.New[tiny.Key, tiny.Node](tiny.NewNode(128), nil)
+	rt, err := triert.New(tiny.NewNode(128), nil)
 	require.NoError(t, err)
 	rt.AddNode(tiny.NewNode(4))
 	rt.AddNode(tiny.NewNode(3))
 
-	sm, err := NewProbe[tiny.Key, tiny.Node](rt, cfg)
+	sm, err := NewProbe(rt, cfg)
 	require.NoError(t, err)
 
 	// after adding first node the probe should be idle since the
@@ -801,12 +801,12 @@ func TestProbeTimeout(t *testing.T) {
 	cfg.Timeout = 3 * time.Minute
 	cfg.Concurrency = 1 // one probe at a time, timeouts will be used to free capacity if there are more requests
 
-	rt, err := triert.New[tiny.Key, tiny.Node](tiny.NewNode(128), nil)
+	rt, err := triert.New(tiny.NewNode(128), nil)
 	require.NoError(t, err)
 	rt.AddNode(tiny.NewNode(4))
 	rt.AddNode(tiny.NewNode(3))
 
-	sm, err := NewProbe[tiny.Key, tiny.Node](rt, cfg)
+	sm, err := NewProbe(rt, cfg)
 	require.NoError(t, err)
 
 	// add a node
@@ -880,12 +880,12 @@ func TestProbeReportsNextDue(t *testing.T) {
 	cfg.Timeout = time.Minute
 	cfg.Concurrency = 1
 
-	rt, err := triert.New[tiny.Key, tiny.Node](tiny.NewNode(128), nil)
+	rt, err := triert.New(tiny.NewNode(128), nil)
 	require.NoError(t, err)
 	rt.AddNode(tiny.NewNode(4))
 	rt.AddNode(tiny.NewNode(5))
 
-	sm, err := NewProbe[tiny.Key, tiny.Node](rt, cfg)
+	sm, err := NewProbe(rt, cfg)
 	require.NoError(t, err)
 
 	// with nothing scheduled there is nothing due
@@ -928,12 +928,12 @@ func TestProbeReportsNextDueWithSpareCapacity(t *testing.T) {
 	cfg.Timeout = time.Minute
 	cfg.Concurrency = 2
 
-	rt, err := triert.New[tiny.Key, tiny.Node](tiny.NewNode(128), nil)
+	rt, err := triert.New(tiny.NewNode(128), nil)
 	require.NoError(t, err)
 	rt.AddNode(tiny.NewNode(4))
 	rt.AddNode(tiny.NewNode(5))
 
-	sm, err := NewProbe[tiny.Key, tiny.Node](rt, cfg)
+	sm, err := NewProbe(rt, cfg)
 	require.NoError(t, err)
 
 	state := sm.Advance(ctx, now, &EventProbeAdd[tiny.Key, tiny.Node]{NodeID: tiny.NewNode(4)})
@@ -962,11 +962,11 @@ func TestProbeConnectivityCheckDropped(t *testing.T) {
 	cfg := DefaultProbeConfig()
 	cfg.CheckInterval = 10 * time.Minute
 
-	rt, err := triert.New[tiny.Key, tiny.Node](tiny.NewNode(128), nil)
+	rt, err := triert.New(tiny.NewNode(128), nil)
 	require.NoError(t, err)
 	rt.AddNode(tiny.NewNode(4))
 
-	sm, err := NewProbe[tiny.Key, tiny.Node](rt, cfg)
+	sm, err := NewProbe(rt, cfg)
 	require.NoError(t, err)
 
 	state := sm.Advance(ctx, now, &EventProbeAdd[tiny.Key, tiny.Node]{

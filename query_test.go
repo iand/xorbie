@@ -138,7 +138,7 @@ func (ts *QueryBehaviourBaseTestSuite) TestNotifiesNoProgress() {
 	ts.Require().IsType(&EventNotifyNonConnectivity[tiny.Key, tiny.Node]{}, bev)
 
 	// ensure that the waiter received query finished event
-	kadtest.ReadItem[CtxEvent[*EventQueryFinished[tiny.Key, tiny.Node]]](t, ctx, waiter.Finished())
+	kadtest.ReadItem(t, ctx, waiter.Finished())
 }
 
 func (ts *QueryBehaviourBaseTestSuite) TestNotifiesQueryProgressed() {
@@ -186,7 +186,7 @@ func (ts *QueryBehaviourBaseTestSuite) TestNotifiesQueryProgressed() {
 	ts.Require().IsType(&EventOutboundGetCloserNodes[tiny.Key, tiny.Node]{}, bev)
 
 	// ensure that the waiter received query progressed event
-	kadtest.ReadItem[CtxEvent[*EventQueryProgressed[tiny.Key, tiny.Node, tiny.Message]]](t, ctx, waiter.Progressed())
+	kadtest.ReadItem(t, ctx, waiter.Progressed())
 }
 
 func (ts *QueryBehaviourBaseTestSuite) TestNotifiesQueryFinished() {
@@ -240,7 +240,7 @@ func (ts *QueryBehaviourBaseTestSuite) TestNotifiesQueryFinished() {
 	}
 
 	// ensure that the waiter received query progressed event
-	wev := kadtest.ReadItem[CtxEvent[*EventQueryProgressed[tiny.Key, tiny.Node, tiny.Message]]](t, ctx, waiter.Progressed())
+	wev := kadtest.ReadItem(t, ctx, waiter.Progressed())
 	ts.Require().True(wev.Event.NodeID.Equal(ts.nodes[1].NodeID))
 
 	// notify success for last seen EventOutboundGetCloserNodes but supply no further nodes
@@ -259,10 +259,10 @@ func (ts *QueryBehaviourBaseTestSuite) TestNotifiesQueryFinished() {
 	}
 
 	// ensure that the waiter received query progressed event
-	kadtest.ReadItem[CtxEvent[*EventQueryProgressed[tiny.Key, tiny.Node, tiny.Message]]](t, ctx, waiter.Progressed())
+	kadtest.ReadItem(t, ctx, waiter.Progressed())
 
 	// ensure that the waiter received query  event
-	kadtest.ReadItem[CtxEvent[*EventQueryFinished[tiny.Key, tiny.Node]]](t, ctx, waiter.Finished())
+	kadtest.ReadItem(t, ctx, waiter.Finished())
 }
 
 // TestQueryBehaviourRequestConcurrency asserts that a query with more seeds
@@ -357,7 +357,7 @@ func TestQueryBehaviourNotifiesQueryTimeout(t *testing.T) {
 		_, ok = b.Perform(ctx)
 		require.False(t, ok)
 
-		wev := kadtest.ReadItem[CtxEvent[*EventQueryFinished[tiny.Key, tiny.Node]]](t, ctx, waiter.Finished())
+		wev := kadtest.ReadItem(t, ctx, waiter.Finished())
 		require.ErrorIs(t, wev.Event.Err, coordt.ErrQueryTimeout)
 		require.Equal(t, coordt.QueryID("test"), wev.Event.QueryID)
 
@@ -389,7 +389,7 @@ func TestQueryTimeoutUnblocksWaitForQuery(t *testing.T) {
 
 		// the coordinator is closed immediately so the test drives the query behaviour
 		// itself rather than racing the event loop
-		c, err := NewCoordinator[tiny.Key, tiny.Node, tiny.Message](nodes[0].NodeID, nodes[0].Router, nodes[0].RoutingTable, tiny.NodeWithCpl, cfg)
+		c, err := NewCoordinator(nodes[0].NodeID, nodes[0].Router, nodes[0].RoutingTable, tiny.NodeWithCpl, cfg)
 		require.NoError(t, err)
 		require.NoError(t, c.Close())
 
@@ -441,7 +441,7 @@ func TestQuery_deadlock_regression(t *testing.T) {
 	// However, we want to test as many parts as possible and waitForQuery
 	// is defined on the coordinator. Therfore, we instantiate a coordinator
 	// and close it immediately to manually control state machine progression.
-	c, err := NewCoordinator[tiny.Key, tiny.Node, tiny.Message](nodes[0].NodeID, nodes[0].Router, nodes[0].RoutingTable, tiny.NodeWithCpl, nil)
+	c, err := NewCoordinator(nodes[0].NodeID, nodes[0].Router, nodes[0].RoutingTable, tiny.NodeWithCpl, nil)
 	require.NoError(t, err)
 	require.NoError(t, c.Close()) // close immediately so that we control the state machine progression
 
@@ -458,7 +458,7 @@ func TestQuery_deadlock_regression(t *testing.T) {
 
 	// start query
 	waiter := NewQueryWaiter[tiny.Key, tiny.Node, tiny.Message](5)
-	wrappedWaiter := NewQueryMonitorHook[tiny.Key, tiny.Node, tiny.Message, *EventQueryFinished[tiny.Key, tiny.Node]](waiter)
+	wrappedWaiter := NewQueryMonitorHook(waiter)
 
 	var waitErr error
 	waiterDone := make(chan struct{})

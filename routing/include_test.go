@@ -60,10 +60,10 @@ func TestIncludeStartsIdle(t *testing.T) {
 	now := epoch
 	cfg := DefaultIncludeConfig()
 
-	rt, err := triert.New[tiny.Key, tiny.Node](tiny.NewNode(128), nil)
+	rt, err := triert.New(tiny.NewNode(128), nil)
 	require.NoError(t, err)
 
-	bs, err := NewInclude[tiny.Key, tiny.Node](rt, cfg)
+	bs, err := NewInclude(rt, cfg)
 	require.NoError(t, err)
 
 	state := bs.Advance(ctx, now, &EventIncludePoll{})
@@ -76,10 +76,10 @@ func TestIncludeAddCandidateStartsCheckIfCapacity(t *testing.T) {
 	cfg := DefaultIncludeConfig()
 	cfg.Concurrency = 1
 
-	rt, err := triert.New[tiny.Key, tiny.Node](tiny.NewNode(128), nil)
+	rt, err := triert.New(tiny.NewNode(128), nil)
 	require.NoError(t, err)
 
-	p, err := NewInclude[tiny.Key, tiny.Node](rt, cfg)
+	p, err := NewInclude(rt, cfg)
 	require.NoError(t, err)
 
 	candidate := tiny.NewNode(0b00000100)
@@ -110,9 +110,9 @@ func TestIncludeAddCandidateReportsCapacity(t *testing.T) {
 	cfg := DefaultIncludeConfig()
 	cfg.Concurrency = 2
 
-	rt, err := triert.New[tiny.Key, tiny.Node](tiny.NewNode(128), nil)
+	rt, err := triert.New(tiny.NewNode(128), nil)
 	require.NoError(t, err)
-	p, err := NewInclude[tiny.Key, tiny.Node](rt, cfg)
+	p, err := NewInclude(rt, cfg)
 	require.NoError(t, err)
 
 	candidate := tiny.NewNode(0b00000100)
@@ -136,10 +136,10 @@ func TestIncludeAddCandidateOverQueueLength(t *testing.T) {
 	cfg.QueueCapacity = 2 // only allow two candidates in the queue
 	cfg.Concurrency = 3
 
-	rt, err := triert.New[tiny.Key, tiny.Node](tiny.NewNode(128), nil)
+	rt, err := triert.New(tiny.NewNode(128), nil)
 	require.NoError(t, err)
 
-	p, err := NewInclude[tiny.Key, tiny.Node](rt, cfg)
+	p, err := NewInclude(rt, cfg)
 	require.NoError(t, err)
 
 	// add a candidate
@@ -208,10 +208,10 @@ func TestIncludeConnectivityCheckSuccess(t *testing.T) {
 	cfg := DefaultIncludeConfig()
 	cfg.Concurrency = 2
 
-	rt, err := triert.New[tiny.Key, tiny.Node](tiny.NewNode(128), nil)
+	rt, err := triert.New(tiny.NewNode(128), nil)
 	require.NoError(t, err)
 
-	p, err := NewInclude[tiny.Key, tiny.Node](rt, cfg)
+	p, err := NewInclude(rt, cfg)
 	require.NoError(t, err)
 
 	// add a candidate
@@ -251,10 +251,10 @@ func TestIncludeConnectivityCheckFailure(t *testing.T) {
 	cfg := DefaultIncludeConfig()
 	cfg.Concurrency = 2
 
-	rt, err := triert.New[tiny.Key, tiny.Node](tiny.NewNode(128), nil)
+	rt, err := triert.New(tiny.NewNode(128), nil)
 	require.NoError(t, err)
 
-	p, err := NewInclude[tiny.Key, tiny.Node](rt, cfg)
+	p, err := NewInclude(rt, cfg)
 	require.NoError(t, err)
 
 	// add a candidate
@@ -283,10 +283,10 @@ func TestIncludeConnectivityCheckTimeout(t *testing.T) {
 	cfg := DefaultIncludeConfig()
 	cfg.Concurrency = 2
 
-	rt, err := triert.New[tiny.Key, tiny.Node](tiny.NewNode(128), nil)
+	rt, err := triert.New(tiny.NewNode(128), nil)
 	require.NoError(t, err)
 
-	p, err := NewInclude[tiny.Key, tiny.Node](rt, cfg)
+	p, err := NewInclude(rt, cfg)
 	require.NoError(t, err)
 
 	// fill every check slot with a node that never answers
@@ -326,10 +326,10 @@ func TestIncludeReportsNextDue(t *testing.T) {
 	cfg := DefaultIncludeConfig()
 	cfg.Concurrency = 2
 
-	rt, err := triert.New[tiny.Key, tiny.Node](tiny.NewNode(128), nil)
+	rt, err := triert.New(tiny.NewNode(128), nil)
 	require.NoError(t, err)
 
-	p, err := NewInclude[tiny.Key, tiny.Node](rt, cfg)
+	p, err := NewInclude(rt, cfg)
 	require.NoError(t, err)
 
 	// nothing in flight, so nothing is due
