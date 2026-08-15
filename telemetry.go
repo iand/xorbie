@@ -24,6 +24,9 @@ type Telemetry struct {
 	Tracer trace.Tracer
 
 	// eventLoopBusySeconds accumulates the time the event loop has spent performing work.
+	//
+	// This is a lower bound since event loops may complete faster than the platform's
+	// clock resolution.
 	eventLoopBusySeconds metric.Float64Counter
 
 	// eventLoopPasses counts the passes the event loop has made.
