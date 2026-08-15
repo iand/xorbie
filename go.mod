@@ -1,6 +1,6 @@
 module github.com/iand/xorbie
 
-go 1.25.7
+go 1.26.2
 
 require (
 	github.com/ipfs/go-libdht v0.5.0
