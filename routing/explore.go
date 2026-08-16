@@ -230,18 +230,24 @@ func (e *Explore[K, N]) Advance(ctx context.Context, now time.Time, ev ExploreEv
 	case *EventExplorePoll:
 		// ignore, nothing to do
 	case *EventExploreFindCloserResponse[K, N]:
-		e.counterFindSucceeded.Add(ctx, 1, metric.WithAttributeSet(e.cplAttributeSet.Load().(attribute.Set)))
-		return e.advanceQuery(ctx, now, &query.EventQueryNodeResponse[K, N]{
-			NodeID:      tev.NodeID,
-			CloserNodes: tev.CloserNodes,
-		})
+		// ignore late responses
+		if e.qry != nil {
+			e.counterFindSucceeded.Add(ctx, 1, metric.WithAttributeSet(e.cplAttributeSet.Load().(attribute.Set)))
+			return e.advanceQuery(ctx, now, &query.EventQueryNodeResponse[K, N]{
+				NodeID:      tev.NodeID,
+				CloserNodes: tev.CloserNodes,
+			})
+		}
 	case *EventExploreFindCloserFailure[K, N]:
-		e.counterFindFailed.Add(ctx, 1, metric.WithAttributeSet(e.cplAttributeSet.Load().(attribute.Set)))
-		span.RecordError(tev.Error)
-		return e.advanceQuery(ctx, now, &query.EventQueryNodeFailure[K, N]{
-			NodeID: tev.NodeID,
-			Error:  tev.Error,
-		})
+		// ignore late responses
+		if e.qry != nil {
+			e.counterFindFailed.Add(ctx, 1, metric.WithAttributeSet(e.cplAttributeSet.Load().(attribute.Set)))
+			span.RecordError(tev.Error)
+			return e.advanceQuery(ctx, now, &query.EventQueryNodeFailure[K, N]{
+				NodeID: tev.NodeID,
+				Error:  tev.Error,
+			})
+		}
 	default:
 		panic(fmt.Sprintf("unexpected event: %T", tev))
 	}

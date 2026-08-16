@@ -445,6 +445,93 @@ func TestExploreQueryTimeout(t *testing.T) {
 	require.IsType(t, &StateExploreQueryTimeout{}, state)
 }
 
+// TestExploreTimeoutIgnoresLaterResponses checks that a response from a request that was
+// still outstanding when an explore query timed out does not advance the abandoned query.
+func TestExploreTimeoutIgnoresLaterResponses(t *testing.T) {
+	ctx := context.Background()
+	now := epoch
+	cfg := DefaultExploreConfig()
+	cfg.Timeout = 3 * time.Minute
+
+	// the request must outlive the explore so its query is still waiting for a
+	// response when the explore deadline passes
+	cfg.RequestTimeout = time.Hour
+
+	self := tiny.NewNode(128)
+	rt, err := triert.New(self, nil)
+	require.NoError(t, err)
+
+	a := tiny.NewNode(4)
+	rt.AddNode(a)
+
+	schedule := DefaultDynamicSchedule(t, now)
+	ex, err := NewExplore(self, rt, tiny.NodeWithCpl, schedule, cfg)
+	require.NoError(t, err)
+
+	// advance the clock to the due time of the first explore so a query starts
+	now = now.Add(schedule.cplInterval(schedule.maxCpl))
+	state := ex.Advance(ctx, now, &EventExplorePoll{})
+	require.IsType(t, &StateExploreFindCloser[tiny.Key, tiny.Node]{}, state)
+
+	// the explore gives up on its query while the request to a is still outstanding
+	now = now.Add(cfg.Timeout + time.Second)
+	state = ex.Advance(ctx, now, &EventExplorePoll{})
+	require.IsType(t, &StateExploreQueryTimeout{}, state)
+
+	// notify explore that the node was contacted successfully after the timeout
+	state = ex.Advance(ctx, now, &EventExploreFindCloserResponse[tiny.Key, tiny.Node]{
+		NodeID:      a,
+		CloserNodes: []tiny.Node{tiny.NewNode(8)},
+	})
+
+	// explore should ignore the late message and now be idle until the next cpl falls due
+	require.IsType(t, &StateExploreIdle{}, state)
+	require.Equal(t, epoch.Add(schedule.cplInterval(schedule.maxCpl-1)), state.(*StateExploreIdle).NextDue)
+}
+
+// TestExploreTimeoutIgnoresLaterFailures checks that a failure from a request that was
+// still outstanding when an explore query timed out does not advance the abandoned query.
+func TestExploreTimeoutIgnoresLaterFailures(t *testing.T) {
+	ctx := context.Background()
+	now := epoch
+	cfg := DefaultExploreConfig()
+	cfg.Timeout = 3 * time.Minute
+
+	// the request must outlive the explore so its query is still waiting for a
+	// response when the explore deadline passes
+	cfg.RequestTimeout = time.Hour
+
+	self := tiny.NewNode(128)
+	rt, err := triert.New(self, nil)
+	require.NoError(t, err)
+
+	a := tiny.NewNode(4)
+	rt.AddNode(a)
+
+	schedule := DefaultDynamicSchedule(t, now)
+	ex, err := NewExplore(self, rt, tiny.NodeWithCpl, schedule, cfg)
+	require.NoError(t, err)
+
+	// advance the clock to the due time of the first explore so a query starts
+	now = now.Add(schedule.cplInterval(schedule.maxCpl))
+	state := ex.Advance(ctx, now, &EventExplorePoll{})
+	require.IsType(t, &StateExploreFindCloser[tiny.Key, tiny.Node]{}, state)
+
+	// the explore gives up on its query while the request to a is still outstanding
+	now = now.Add(cfg.Timeout + time.Second)
+	state = ex.Advance(ctx, now, &EventExplorePoll{})
+	require.IsType(t, &StateExploreQueryTimeout{}, state)
+
+	// notify explore that the node failed to be contacted after the timeout
+	state = ex.Advance(ctx, now, &EventExploreFindCloserFailure[tiny.Key, tiny.Node]{
+		NodeID: a,
+	})
+
+	// explore should ignore the late message and now be idle until the next cpl falls due
+	require.IsType(t, &StateExploreIdle{}, state)
+	require.Equal(t, epoch.Add(schedule.cplInterval(schedule.maxCpl-1)), state.(*StateExploreIdle).NextDue)
+}
+
 func TestExploreReportsNextDue(t *testing.T) {
 	ctx := context.Background()
 	now := epoch
