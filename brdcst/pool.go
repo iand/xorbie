@@ -47,6 +47,44 @@ type Pool[K kad.Key[K], N kad.NodeID[K], M coordt.Message[K, N]] struct {
 	nextDue time.Time
 }
 
+// Config is an interface that all broadcast configurations must implement. A record can be
+// broadcast in more than one way, and the concrete type of the [Config] carried by an
+// [EventPoolStartBroadcast] event selects which strategy the [Pool] creates to run it.
+type Config interface {
+	broadcastConfig()
+}
+
+// PoolConfig specifies the configuration for a broadcast [Pool].
+type PoolConfig struct {
+	pCfg *query.PoolConfig
+
+	// Tracer is the tracer that should be used to trace execution.
+	Tracer trace.Tracer
+}
+
+// Validate checks the configuration options and returns an error if any have
+// invalid values.
+func (cfg *PoolConfig) Validate() error {
+	if cfg.pCfg == nil {
+		return fmt.Errorf("query pool config must not be nil")
+	}
+
+	if cfg.Tracer == nil {
+		return fmt.Errorf("tracer must not be nil")
+	}
+
+	return nil
+}
+
+// DefaultPoolConfig returns the default configuration options for a Pool.
+// Options may be overridden before passing to NewPool
+func DefaultPoolConfig() *PoolConfig {
+	return &PoolConfig{
+		pCfg:   query.DefaultPoolConfig(),
+		Tracer: coordt.NoopTracer(),
+	}
+}
+
 // NewPool creates a broadcast pool along with the query pool its broadcasts run their find
 // closer nodes queries in. The default configuration is used if cfg is nil. The query pool
 // is created here rather than shared with the one serving ordinary queries so that the two

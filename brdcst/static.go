@@ -61,6 +61,23 @@ type Static[K kad.Key[K], N kad.NodeID[K], M coordt.Message[K, N]] struct {
 	tracer trace.Tracer
 }
 
+// StaticConfig specifies the configuration for the [Static] state machine.
+type StaticConfig struct{}
+
+func (c *StaticConfig) broadcastConfig() {}
+
+// Validate checks the configuration options and returns an error if any have
+// invalid values.
+func (c *StaticConfig) Validate() error {
+	return nil
+}
+
+// DefaultStaticConfig returns the default configuration options for the
+// [Static] state machine.
+func DefaultStaticConfig() *StaticConfig {
+	return &StaticConfig{}
+}
+
 // NewStatic creates a state machine that broadcasts msg to the nodes it is seeded with when
 // it is started, reporting progress under the query id qid.
 func NewStatic[K kad.Key[K], N kad.NodeID[K], M coordt.Message[K, N]](qid coordt.QueryID, msg M, cfg *StaticConfig, tracer trace.Tracer) *Static[K, N, M] {

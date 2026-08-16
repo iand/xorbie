@@ -78,6 +78,23 @@ type FollowUp[K kad.Key[K], N kad.NodeID[K], M coordt.Message[K, N]] struct {
 	tracer trace.Tracer
 }
 
+// FollowUpConfig specifies the configuration for the [FollowUp] state machine.
+type FollowUpConfig struct{}
+
+func (c *FollowUpConfig) broadcastConfig() {}
+
+// Validate checks the configuration options and returns an error if any have
+// invalid values.
+func (c *FollowUpConfig) Validate() error {
+	return nil
+}
+
+// DefaultFollowUpConfig returns the default configuration options for the
+// [FollowUp] state machine.
+func DefaultFollowUpConfig() *FollowUpConfig {
+	return &FollowUpConfig{}
+}
+
 // NewFollowUp creates a state machine that broadcasts msg to the nodes closest to the target
 // it is started with, running its query in pool and reporting progress under the query id qid.
 func NewFollowUp[K kad.Key[K], N kad.NodeID[K], M coordt.Message[K, N]](qid coordt.QueryID, pool *query.Pool[K, N, M], msg M, cfg *FollowUpConfig, tracer trace.Tracer) *FollowUp[K, N, M] {
