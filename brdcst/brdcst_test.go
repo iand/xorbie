@@ -6,7 +6,7 @@ import (
 	"github.com/iand/xorbie/internal/tiny"
 )
 
-func TestBroadcastState_interface_conformance(t *testing.T) {
+func TestBroadcastStateInterfaceConformance(t *testing.T) {
 	states := []BroadcastState{
 		&StateBroadcastIdle{},
 		&StateBroadcastWaiting{},
@@ -19,7 +19,7 @@ func TestBroadcastState_interface_conformance(t *testing.T) {
 	}
 }
 
-func TestBroadcastEvent_interface_conformance(t *testing.T) {
+func TestBroadcastEventInterfaceConformance(t *testing.T) {
 	events := []BroadcastEvent{
 		&EventBroadcastStop{},
 		&EventBroadcastPoll{},

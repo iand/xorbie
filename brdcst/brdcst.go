@@ -55,10 +55,10 @@ type StateBroadcastFinished[K kad.Key[K], N kad.NodeID[K]] struct {
 	}
 }
 
-// StateBroadcastIdle indicates that a [Broadcast] state machine has nothing left to do. It
-// is emitted when a machine is polled after its operation has already finished. A [Pool]
-// never observes it, because a machine that reports [StateBroadcastFinished] is dropped from
-// the pool in the same advance.
+// StateBroadcastIdle indicates that a [Broadcast] state machine has nothing to do. It is
+// emitted by a machine polled before it has been started. A machine that has finished does
+// not become idle: it reports [StateBroadcastFinished] on every later advance. A [Pool] never
+// observes this state, since it starts a broadcast as soon as it creates one.
 type StateBroadcastIdle struct{}
 
 func (*StateBroadcastFindCloser[K, N]) broadcastState()     {}

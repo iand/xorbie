@@ -163,21 +163,17 @@ func (f *Static[K, N, M]) Advance(ctx context.Context, now time.Time, ev Broadca
 		return &StateBroadcastWaiting{}
 	}
 
-	if len(f.todo) == 0 {
-		contacted := make([]N, 0, len(f.success)+len(f.failed))
-		for _, n := range f.success {
-			contacted = append(contacted, n)
-		}
-		for _, n := range f.failed {
-			contacted = append(contacted, n.Node)
-		}
-
-		return &StateBroadcastFinished[K, N]{
-			QueryID:   f.queryID,
-			Contacted: contacted,
-			Errors:    f.failed,
-		}
+	contacted := make([]N, 0, len(f.success)+len(f.failed))
+	for _, n := range f.success {
+		contacted = append(contacted, n)
+	}
+	for _, n := range f.failed {
+		contacted = append(contacted, n.Node)
 	}
 
-	return &StateBroadcastIdle{}
+	return &StateBroadcastFinished[K, N]{
+		QueryID:   f.queryID,
+		Contacted: contacted,
+		Errors:    f.failed,
+	}
 }

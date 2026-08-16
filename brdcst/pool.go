@@ -150,8 +150,7 @@ func (p *Pool[K, N, M]) Advance(ctx context.Context, now time.Time, ev PoolEvent
 		}
 	}
 
-	// The pool holds broadcasts but none of them had work to hand out, so all of them
-	// are waiting on responses.
+	// no broadcast produced an instruction, so the pool has nothing to do but wait
 	return &StatePoolWaiting{NextDue: p.nextDue}
 }
 
