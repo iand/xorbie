@@ -141,9 +141,9 @@ func TestBootstrapMessageResponse(t *testing.T) {
 	})
 
 	// bootstrap should respond that its query has finished
-	require.IsType(t, &StateBootstrapFinished{}, state)
+	require.IsType(t, &StateBootstrapFinished[tiny.Key, tiny.Node]{}, state)
 
-	stf := state.(*StateBootstrapFinished)
+	stf := state.(*StateBootstrapFinished[tiny.Key, tiny.Node])
 	require.Equal(t, 1, stf.Stats.Requests)
 	require.Equal(t, 1, stf.Stats.Success)
 }
@@ -227,9 +227,9 @@ func TestBootstrapProgress(t *testing.T) {
 	})
 
 	// bootstrap should respond that its query has finished
-	require.IsType(t, &StateBootstrapFinished{}, state)
+	require.IsType(t, &StateBootstrapFinished[tiny.Key, tiny.Node]{}, state)
 
-	stf := state.(*StateBootstrapFinished)
+	stf := state.(*StateBootstrapFinished[tiny.Key, tiny.Node])
 	require.Equal(t, 4, stf.Stats.Requests)
 	require.Equal(t, 4, stf.Stats.Success)
 }
@@ -262,7 +262,7 @@ func TestBootstrapFinishesThenGoesIdle(t *testing.T) {
 	})
 
 	// bootstrap should respond that its query has finished
-	require.IsType(t, &StateBootstrapFinished{}, state)
+	require.IsType(t, &StateBootstrapFinished[tiny.Key, tiny.Node]{}, state)
 
 	// poll bootstrap
 	state = bs.Advance(ctx, now, &EventBootstrapPoll{})
@@ -316,7 +316,7 @@ func TestBootstrapFinishedIgnoresLaterResponses(t *testing.T) {
 	state = bs.Advance(ctx, now, &EventBootstrapPoll{})
 
 	// bootstrap should now be finished
-	require.IsType(t, &StateBootstrapFinished{}, state)
+	require.IsType(t, &StateBootstrapFinished[tiny.Key, tiny.Node]{}, state)
 
 	// notify bootstrap that node was contacted successfully after the timeout
 	state = bs.Advance(ctx, now, &EventBootstrapFindCloserResponse[tiny.Key, tiny.Node]{
@@ -372,7 +372,7 @@ func TestBootstrapFinishedIgnoresLaterFailures(t *testing.T) {
 	state = bs.Advance(ctx, now, &EventBootstrapPoll{})
 
 	// bootstrap should now be finished
-	require.IsType(t, &StateBootstrapFinished{}, state)
+	require.IsType(t, &StateBootstrapFinished[tiny.Key, tiny.Node]{}, state)
 
 	// notify bootstrap that node failed to be contacted
 	state = bs.Advance(ctx, now, &EventBootstrapFindCloserFailure[tiny.Key, tiny.Node]{
@@ -583,7 +583,7 @@ func TestBootstrapWaitsRetryIntervalBeforeStartingAgain(t *testing.T) {
 		NodeID: seed,
 		Error:  errors.New("failed"),
 	})
-	require.IsType(t, &StateBootstrapFinished{}, state)
+	require.IsType(t, &StateBootstrapFinished[tiny.Key, tiny.Node]{}, state)
 
 	// the table is still empty but the retry interval has not elapsed
 	state = bs.Advance(ctx, now, &EventBootstrapPoll{})

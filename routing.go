@@ -839,8 +839,15 @@ func (r *RoutingBehaviour[K, N]) advanceBootstrap(ctx context.Context, now time.
 	case *routing.StateBootstrapWaiting:
 		// bootstrap waiting for a message response, nothing to do
 		r.bootstrapDue = st.NextDue
-	case *routing.StateBootstrapFinished:
+	case *routing.StateBootstrapFinished[K, N]:
 		r.cfg.Logger.Debug("bootstrap finished", slog.Duration("elapsed", st.Stats.End.Sub(st.Stats.Start)), slog.Int("requests", st.Stats.Requests), slog.Int("failures", st.Stats.Failure))
+
+		if r.cfg.NetworkSize != nil && len(st.ClosestNodes) > 0 {
+			if err := r.cfg.NetworkSize.Track(now, st.Target, st.ClosestNodes); err != nil {
+				r.cfg.Logger.Warn("track bootstrap result", logAttrError(err))
+			}
+		}
+
 		r.bootstrapDue = time.Time{}
 		return &EventBootstrapFinished{
 			Stats: st.Stats,

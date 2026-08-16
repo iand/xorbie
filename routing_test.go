@@ -757,3 +757,74 @@ func TestRoutingBehaviourTracksExploreResults(t *testing.T) {
 		t.Errorf("got %d samples, want %d", est.Samples, want)
 	}
 }
+
+// onceBootstrap is a bootstrap state machine that reports a state on its first advance and is
+// idle from then on.
+type onceBootstrap struct {
+	state routing.BootstrapState
+	done  bool
+}
+
+func (o *onceBootstrap) Advance(ctx context.Context, now time.Time, ev routing.BootstrapEvent) routing.BootstrapState {
+	if o.done {
+		return &routing.StateBootstrapIdle{}
+	}
+	o.done = true
+	return o.state
+}
+
+// TestRoutingBehaviourTracksBootstrapResults checks that the results of a completed bootstrap
+// reach the configured network size estimator.
+func TestRoutingBehaviourTracksBootstrapResults(t *testing.T) {
+	ctx := kadtest.CtxShort(t)
+
+	nse, err := netsize.New[tiny.Key, tiny.Node](nil)
+	if err != nil {
+		t.Fatalf("new estimator: %v", err)
+	}
+
+	bootstrap := new(onceBootstrap)
+
+	cfg := DefaultRoutingConfig[tiny.Key, tiny.Node]()
+	cfg.NetworkSize = nse
+
+	self := tiny.NewNode(tiny.Key(0b11111111))
+	routingBehaviour, err := ComposeRoutingBehaviour(self, bootstrap, idleInclude(), idleProbe(), idleExplore(), cfg)
+	if err != nil {
+		t.Fatalf("compose routing behaviour: %v", err)
+	}
+
+	bootstraps := []struct {
+		target    tiny.Key
+		distances []uint8
+	}{
+		{target: tiny.Key(0b00000000), distances: []uint8{1, 2, 4}},
+		{target: tiny.Key(0b10000000), distances: []uint8{3, 5, 9}},
+		{target: tiny.Key(0b01000000), distances: []uint8{2, 6, 12}},
+	}
+
+	for _, bs := range bootstraps {
+		nodes := make([]tiny.Node, 0, len(bs.distances))
+		for _, d := range bs.distances {
+			nodes = append(nodes, tiny.NewNode(tiny.Key(uint8(bs.target)^d)))
+		}
+
+		bootstrap.state = &routing.StateBootstrapFinished[tiny.Key, tiny.Node]{
+			Target:       bs.target,
+			ClosestNodes: nodes,
+		}
+		bootstrap.done = false
+
+		routingBehaviour.Notify(ctx, &EventRoutingPoll{})
+		routingBehaviour.Perform(ctx)
+	}
+
+	est, err := nse.Estimate(time.Now())
+	if err != nil {
+		t.Fatalf("Estimate: %v", err)
+	}
+
+	if want := 9; est.Samples != want {
+		t.Errorf("got %d samples, want %d", est.Samples, want)
+	}
+}

@@ -214,6 +214,22 @@ func NewCoordinator[K kad.Key[K], N kad.NodeID[K], M coordt.Message[K, N]](
 	cfg.Query.NetworkSize = nse
 	cfg.Routing.NetworkSize = nse
 
+	_, err = behaviourMeter.Int64ObservableGauge(
+		"network_size",
+		metric.WithDescription("Estimated number of nodes in the network"),
+		metric.WithInt64Callback(func(ctx context.Context, o metric.Int64Observer) error {
+			est, err := nse.Estimate(time.Now())
+			if err != nil {
+				return nil
+			}
+			o.Observe(int64(est.Size))
+			return nil
+		}),
+	)
+	if err != nil {
+		return nil, fmt.Errorf("create network_size gauge: %w", err)
+	}
+
 	queryBehaviour, err := NewQueryBehaviour[K, N, M](self, &cfg.Query)
 	if err != nil {
 		return nil, fmt.Errorf("query behaviour: %w", err)

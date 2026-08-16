@@ -348,8 +348,10 @@ func (b *Bootstrap[K, N]) advanceQuery(ctx context.Context, now time.Time, qev q
 	case *query.StateQueryFinished[K, N]:
 		span.SetAttributes(attribute.String("out_state", "StateBootstrapFinished"))
 		b.qry = nil
-		return &StateBootstrapFinished{
-			Stats: st.Stats,
+		return &StateBootstrapFinished[K, N]{
+			Stats:        st.Stats,
+			Target:       st.Target,
+			ClosestNodes: st.ClosestNodes,
 		}
 	case *query.StateQueryWaitingAtCapacity:
 		if now.After(st.Deadline) {
@@ -405,8 +407,10 @@ type StateBootstrapIdle struct {
 }
 
 // StateBootstrapFinished indicates that the bootstrap has finished.
-type StateBootstrapFinished struct {
-	Stats query.QueryStats
+type StateBootstrapFinished[K kad.Key[K], N kad.NodeID[K]] struct {
+	Stats        query.QueryStats
+	Target       K   // the key the query was looking for the closest nodes to
+	ClosestNodes []N // the closest nodes to the target key that were found
 }
 
 // StateBootstrapTimeout indicates that the bootstrap query has timed out.
@@ -423,7 +427,7 @@ type StateBootstrapWaiting struct {
 // bootstrapState() ensures that only Bootstrap states can be assigned to a BootstrapState.
 func (*StateBootstrapFindCloser[K, N]) bootstrapState() {}
 func (*StateBootstrapIdle) bootstrapState()             {}
-func (*StateBootstrapFinished) bootstrapState()         {}
+func (*StateBootstrapFinished[K, N]) bootstrapState()   {}
 func (*StateBootstrapTimeout) bootstrapState()          {}
 func (*StateBootstrapWaiting) bootstrapState()          {}
 
