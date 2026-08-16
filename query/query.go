@@ -15,16 +15,14 @@ import (
 // QueryStats holds the counts and timings a [Query] accumulates as it runs. A query reports
 // them with every state it emits.
 //
-// The counters track requests rather than nodes, and one request can contribute to more than
-// one of them. A node whose request passes its deadline is counted a failure and may still
-// answer afterwards, which is counted a success as well, so Success and Failure together can
-// exceed Requests.
+// The counters track requests rather than nodes, and each request that has completed counts
+// once, so Success and Failure together never exceed Requests.
 type QueryStats struct {
 	Start    time.Time // the time the first request was dispatched, zero until then
 	End      time.Time // the time the query finished, zero until then
 	Requests int       // the number of requests dispatched
-	Success  int       // the number of requests answered, including answers arriving after the request had timed out
-	Failure  int       // the number of requests that failed or passed their deadline unanswered
+	Success  int       // the number of requests answered within their deadline
+	Failure  int       // the number of requests that errored or passed their deadline
 }
 
 // QueryConfig specifies optional configuration for a Query
@@ -441,7 +439,14 @@ func (q *Query[K, N, M]) onNodeResponse(ctx context.Context, node N, closer []N)
 		q.inFlight--
 		q.stats.Success++
 	case *StateNodeUnresponsive:
-		q.stats.Success++
+		// The request passed its deadline and is counted as a failure. The node is still
+		// marked as having succeeded and the closer nodes it carries are still used, since a
+		// node that answers late is slow rather than absent. Excluding it would shrink the
+		// result below the replication factor on a slow network.
+		//
+		// TODO: revisit. Being marked as succeeded also lets a late answer count towards
+		// [QueryConfig.NumResults] and so finish the query, and puts the node in the result
+		// the caller acts on, which for a provide is the set that receives the record.
 
 	case *StateNodeNotContacted:
 		// ignore duplicate or late response

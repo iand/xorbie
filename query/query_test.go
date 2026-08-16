@@ -1434,3 +1434,190 @@ func TestQueryReportsNextDueAcrossIterationOrder(t *testing.T) {
 	stac := state.(*StateQueryWaitingAtCapacity)
 	require.Equal(t, now.Add(cfg.RequestTimeout), stac.NextDue)
 }
+
+// TestQueryLateResponseCountsOneOutcome checks that a request answered after it has passed
+// its deadline is counted once, as the success it turned out to be, rather than as both a
+// failure and a success.
+func TestQueryLateResponseCountsOneOutcome(t *testing.T) {
+	ctx := context.Background()
+
+	target := tiny.Key(0b00000001)
+	a := tiny.NewNode(0b00000100) // 4
+
+	now := epoch
+
+	iter := NewClosestNodesIter[tiny.Key, tiny.Node](target)
+
+	cfg := DefaultQueryConfig()
+	cfg.RequestTimeout = 3 * time.Minute
+
+	self := tiny.NewNode(0)
+	qry, err := NewFindCloserQuery[tiny.Key, tiny.Node, tiny.Message](self, coordt.QueryID("test"), target, iter, []tiny.Node{a}, cfg)
+	require.NoError(t, err)
+
+	// the only known node is contacted, which is the one request this query makes
+	state := qry.Advance(ctx, now, &EventQueryPoll{})
+	require.IsType(t, &StateQueryFindCloser[tiny.Key, tiny.Node]{}, state)
+	require.Equal(t, 1, state.(*StateQueryFindCloser[tiny.Key, tiny.Node]).Stats.Requests)
+
+	// the node does not answer within the request timeout, so it is counted a failure
+	now = now.Add(cfg.RequestTimeout + time.Second)
+	state = qry.Advance(ctx, now, &EventQueryPoll{})
+	require.IsType(t, &StateQueryFinished[tiny.Key, tiny.Node]{}, state)
+	stf := state.(*StateQueryFinished[tiny.Key, tiny.Node])
+	require.Equal(t, 1, stf.Stats.Requests)
+	require.Equal(t, 0, stf.Stats.Success)
+	require.Equal(t, 1, stf.Stats.Failure)
+}
+
+// TestQueryLateResponseStaysCountedAsFailure checks that a node answering after its request
+// has passed its deadline leaves that request counted as the failure it was, rather than
+// counting it a second time as a success.
+func TestQueryLateResponseStaysCountedAsFailure(t *testing.T) {
+	ctx := context.Background()
+
+	target := tiny.Key(0b00000001)
+	a := tiny.NewNode(0b00000100) // 4
+	b := tiny.NewNode(0b00001000) // 8
+
+	now := epoch
+
+	iter := NewClosestNodesIter[tiny.Key, tiny.Node](target)
+
+	cfg := DefaultQueryConfig()
+	cfg.RequestTimeout = 3 * time.Minute
+
+	// a second node keeps the query running after the first has timed out
+	self := tiny.NewNode(0)
+	qry, err := NewFindCloserQuery[tiny.Key, tiny.Node, tiny.Message](self, coordt.QueryID("test"), target, iter, []tiny.Node{a, b}, cfg)
+	require.NoError(t, err)
+
+	state := qry.Advance(ctx, now, &EventQueryPoll{})
+	require.IsType(t, &StateQueryFindCloser[tiny.Key, tiny.Node]{}, state)
+	require.Equal(t, a, state.(*StateQueryFindCloser[tiny.Key, tiny.Node]).NodeID)
+
+	state = qry.Advance(ctx, now, &EventQueryPoll{})
+	require.IsType(t, &StateQueryFindCloser[tiny.Key, tiny.Node]{}, state)
+	require.Equal(t, b, state.(*StateQueryFindCloser[tiny.Key, tiny.Node]).NodeID)
+
+	// neither answers in time, so both requests are counted failures
+	now = now.Add(cfg.RequestTimeout + time.Second)
+	state = qry.Advance(ctx, now, &EventQueryPoll{})
+	require.IsType(t, &StateQueryFinished[tiny.Key, tiny.Node]{}, state)
+	require.Equal(t, 2, state.(*StateQueryFinished[tiny.Key, tiny.Node]).Stats.Failure)
+
+	// a query that has finished no longer accounts for anything, so this is checked on a
+	// query still running: repeat with only the first node timing out
+	iter2 := NewClosestNodesIter[tiny.Key, tiny.Node](target)
+	qry2, err := NewFindCloserQuery[tiny.Key, tiny.Node, tiny.Message](self, coordt.QueryID("test"), target, iter2, []tiny.Node{a, b}, cfg)
+	require.NoError(t, err)
+
+	now = epoch
+	state = qry2.Advance(ctx, now, &EventQueryPoll{})
+	require.IsType(t, &StateQueryFindCloser[tiny.Key, tiny.Node]{}, state)
+
+	// the second request is sent a minute later, so it outlives the first node's deadline
+	now = epoch.Add(time.Minute)
+	state = qry2.Advance(ctx, now, &EventQueryPoll{})
+	require.IsType(t, &StateQueryFindCloser[tiny.Key, tiny.Node]{}, state)
+
+	// the first node passes its deadline and is counted a failure
+	now = epoch.Add(cfg.RequestTimeout + time.Second)
+	state = qry2.Advance(ctx, now, &EventQueryPoll{})
+	require.IsType(t, &StateQueryWaitingWithCapacity{}, state)
+	stw := state.(*StateQueryWaitingWithCapacity)
+	require.Equal(t, 2, stw.Stats.Requests)
+	require.Equal(t, 0, stw.Stats.Success)
+	require.Equal(t, 1, stw.Stats.Failure)
+
+	// it then answers anyway, which leaves the counters alone: the request had already
+	// failed against its deadline and is not counted a second time
+	state = qry2.Advance(ctx, now, &EventQueryNodeResponse[tiny.Key, tiny.Node]{NodeID: a})
+	stats := queryStats(t, state)
+	require.Equal(t, 2, stats.Requests)
+	require.Equal(t, 0, stats.Success)
+	require.Equal(t, 1, stats.Failure)
+}
+
+// TestQueryLateResponseMarksNodeGood checks that a node answering after its request has
+// passed its deadline is treated as a usable node rather than a lost one, so that it can be
+// returned in the query result and the nodes it reports are followed.
+func TestQueryLateResponseMarksNodeGood(t *testing.T) {
+	ctx := context.Background()
+
+	target := tiny.Key(0b00000001)
+	a := tiny.NewNode(0b00000100) // 4
+	b := tiny.NewNode(0b00001000) // 8
+
+	now := epoch
+
+	iter := NewClosestNodesIter[tiny.Key, tiny.Node](target)
+
+	cfg := DefaultQueryConfig()
+	cfg.RequestTimeout = 3 * time.Minute
+
+	self := tiny.NewNode(0)
+	qry, err := NewFindCloserQuery[tiny.Key, tiny.Node, tiny.Message](self, coordt.QueryID("test"), target, iter, []tiny.Node{a}, cfg)
+	require.NoError(t, err)
+
+	state := qry.Advance(ctx, now, &EventQueryPoll{})
+	require.IsType(t, &StateQueryFindCloser[tiny.Key, tiny.Node]{}, state)
+
+	// the node does not answer within its deadline, so the query gives up on it
+	now = now.Add(cfg.RequestTimeout + time.Second)
+	state = qry.Advance(ctx, now, &EventQueryPoll{})
+	require.IsType(t, &StateQueryFinished[tiny.Key, tiny.Node]{}, state)
+	require.Empty(t, state.(*StateQueryFinished[tiny.Key, tiny.Node]).ClosestNodes)
+
+	// a query that has finished ignores everything, so the same is checked on one still
+	// running, where a second node holds the query open
+	iter2 := NewClosestNodesIter[tiny.Key, tiny.Node](target)
+	qry2, err := NewFindCloserQuery[tiny.Key, tiny.Node, tiny.Message](self, coordt.QueryID("test"), target, iter2, []tiny.Node{a, b}, cfg)
+	require.NoError(t, err)
+
+	now = epoch
+	state = qry2.Advance(ctx, now, &EventQueryPoll{})
+	require.IsType(t, &StateQueryFindCloser[tiny.Key, tiny.Node]{}, state)
+
+	now = epoch.Add(time.Minute)
+	state = qry2.Advance(ctx, now, &EventQueryPoll{})
+	require.IsType(t, &StateQueryFindCloser[tiny.Key, tiny.Node]{}, state)
+
+	// the first node passes its deadline and the query gives up on it
+	now = epoch.Add(cfg.RequestTimeout + time.Second)
+	state = qry2.Advance(ctx, now, &EventQueryPoll{})
+	require.IsType(t, &StateQueryWaitingWithCapacity{}, state)
+
+	// it then answers, reporting a node the query has not seen, which the query goes on to
+	// contact
+	c := tiny.NewNode(0b00000010) // 2
+	state = qry2.Advance(ctx, now, &EventQueryNodeResponse[tiny.Key, tiny.Node]{
+		NodeID:      a,
+		CloserNodes: []tiny.Node{c},
+	})
+	require.IsType(t, &StateQueryFindCloser[tiny.Key, tiny.Node]{}, state)
+	require.Equal(t, c, state.(*StateQueryFindCloser[tiny.Key, tiny.Node]).NodeID)
+
+	// once the query finishes, the late answering node is among the nodes it reports
+	state = qry2.Advance(ctx, now, &EventQueryCancel{})
+	require.IsType(t, &StateQueryFinished[tiny.Key, tiny.Node]{}, state)
+	require.Contains(t, state.(*StateQueryFinished[tiny.Key, tiny.Node]).ClosestNodes, a)
+}
+
+// queryStats returns the statistics carried by a query state.
+func queryStats(t *testing.T, state QueryState) QueryStats {
+	t.Helper()
+	switch st := state.(type) {
+	case *StateQueryFindCloser[tiny.Key, tiny.Node]:
+		return st.Stats
+	case *StateQueryWaitingWithCapacity:
+		return st.Stats
+	case *StateQueryWaitingAtCapacity:
+		return st.Stats
+	case *StateQueryFinished[tiny.Key, tiny.Node]:
+		return st.Stats
+	default:
+		t.Fatalf("state carries no stats: %T", state)
+		return QueryStats{}
+	}
+}
