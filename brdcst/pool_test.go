@@ -465,6 +465,129 @@ func TestPoolReportsNextDue(t *testing.T) {
 	require.True(t, state.(*StatePoolWaiting).NextDue.IsZero())
 }
 
+// TestPoolAdvancesEveryBroadcast checks that a broadcast waiting on outstanding requests does
+// not stop the pool producing work for another broadcast running alongside it.
+func TestPoolAdvancesEveryBroadcast(t *testing.T) {
+	ctx := context.Background()
+	cfg := DefaultConfigPool()
+
+	self := tiny.NewNode(0)
+
+	p, err := NewPool[tiny.Key, tiny.Node, tiny.Message](self, cfg)
+	require.NoError(t, err)
+
+	msg := tiny.Message{Content: "store this"}
+	target := tiny.Key(0b00000001)
+
+	first := coordt.QueryID("first")
+	second := coordt.QueryID("second")
+
+	// a static broadcast takes its seed nodes as work to do, with no query phase, so both
+	// broadcasts can be driven to the point of waiting without involving the query pool
+	state := p.Advance(ctx, epoch, &EventPoolStartBroadcast[tiny.Key, tiny.Node, tiny.Message]{
+		QueryID: first,
+		Target:  target,
+		Message: msg,
+		Seed:    []tiny.Node{tiny.NewNode(0b00000100), tiny.NewNode(0b00000101)},
+		Config:  DefaultConfigStatic(),
+	})
+	srState, ok := state.(*StatePoolStoreRecord[tiny.Key, tiny.Node, tiny.Message])
+	require.True(t, ok, "state is %T", state)
+	require.Equal(t, first, srState.QueryID)
+	firstContacted := srState.NodeID
+
+	// the first broadcast's other node is contacted too, leaving it waiting on both
+	state = p.Advance(ctx, epoch, &EventPoolPoll{})
+	srState, ok = state.(*StatePoolStoreRecord[tiny.Key, tiny.Node, tiny.Message])
+	require.True(t, ok, "state is %T", state)
+	require.Equal(t, first, srState.QueryID)
+
+	// the second broadcast starts and contacts one of its two nodes, keeping the other to do
+	state = p.Advance(ctx, epoch, &EventPoolStartBroadcast[tiny.Key, tiny.Node, tiny.Message]{
+		QueryID: second,
+		Target:  target,
+		Message: msg,
+		Seed:    []tiny.Node{tiny.NewNode(0b00000110), tiny.NewNode(0b00000111)},
+		Config:  DefaultConfigStatic(),
+	})
+	srState, ok = state.(*StatePoolStoreRecord[tiny.Key, tiny.Node, tiny.Message])
+	require.True(t, ok, "state is %T", state)
+	require.Equal(t, second, srState.QueryID)
+	secondContacted := srState.NodeID
+
+	// one of the first broadcast's records lands, which leaves it waiting on the other and
+	// with nothing of its own to do
+	state = p.Advance(ctx, epoch, &EventPoolStoreRecordSuccess[tiny.Key, tiny.Node, tiny.Message]{
+		QueryID: first,
+		NodeID:  firstContacted,
+		Request: msg,
+	})
+
+	// the pool should hand out the second broadcast's remaining node rather than report
+	// that it is waiting on the first
+	srState, ok = state.(*StatePoolStoreRecord[tiny.Key, tiny.Node, tiny.Message])
+	require.True(t, ok, "state is %T", state)
+	require.Equal(t, second, srState.QueryID)
+	require.NotEqual(t, secondContacted, srState.NodeID)
+}
+
+// TestPoolReportsEarliestNextDueAcrossBroadcasts checks that when every broadcast is waiting the
+// pool reports the earliest instant any of them could make progress, ignoring those with none.
+func TestPoolReportsEarliestNextDueAcrossBroadcasts(t *testing.T) {
+	ctx := context.Background()
+	cfg := DefaultConfigPool()
+
+	self := tiny.NewNode(0)
+
+	p, err := NewPool[tiny.Key, tiny.Node, tiny.Message](self, cfg)
+	require.NoError(t, err)
+
+	msg := tiny.Message{Content: "store this"}
+	target := tiny.Key(0b00000001)
+
+	followUp := coordt.QueryID("followup")
+	static := coordt.QueryID("static")
+
+	// a follow up broadcast in its query phase waits on a request that carries a deadline
+	state := p.Advance(ctx, epoch, &EventPoolStartBroadcast[tiny.Key, tiny.Node, tiny.Message]{
+		QueryID: followUp,
+		Target:  target,
+		Message: msg,
+		Seed:    []tiny.Node{tiny.NewNode(0b00000100)},
+		Config:  DefaultConfigFollowUp(),
+	})
+	require.IsType(t, &StatePoolFindCloser[tiny.Key, tiny.Node]{}, state)
+
+	// a static broadcast waits on store record requests, which carry no deadline
+	state = p.Advance(ctx, epoch, &EventPoolStartBroadcast[tiny.Key, tiny.Node, tiny.Message]{
+		QueryID: static,
+		Target:  target,
+		Message: msg,
+		Seed:    []tiny.Node{tiny.NewNode(0b00000110), tiny.NewNode(0b00000111)},
+		Config:  DefaultConfigStatic(),
+	})
+	srState, ok := state.(*StatePoolStoreRecord[tiny.Key, tiny.Node, tiny.Message])
+	require.True(t, ok, "state is %T", state)
+	staticContacted := srState.NodeID
+
+	state = p.Advance(ctx, epoch, &EventPoolPoll{})
+	srState, ok = state.(*StatePoolStoreRecord[tiny.Key, tiny.Node, tiny.Message])
+	require.True(t, ok, "state is %T", state)
+	require.Equal(t, static, srState.QueryID)
+
+	// one of the static broadcast's records lands, leaving every broadcast waiting
+	state = p.Advance(ctx, epoch, &EventPoolStoreRecordSuccess[tiny.Key, tiny.Node, tiny.Message]{
+		QueryID: static,
+		NodeID:  staticContacted,
+		Request: msg,
+	})
+
+	// the request deadline is the only instant at which the pool could make progress, so the
+	// static broadcast having none must not mask it
+	require.IsType(t, &StatePoolWaiting{}, state)
+	require.Equal(t, epoch.Add(cfg.pCfg.RequestTimeout), state.(*StatePoolWaiting).NextDue)
+}
+
 func TestPoolEvent_interface_conformance(t *testing.T) {
 	events := []PoolEvent{
 		&EventPoolStopBroadcast{},

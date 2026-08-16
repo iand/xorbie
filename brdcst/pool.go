@@ -37,6 +37,10 @@ type Pool[K kad.Key[K], N kad.NodeID[K], M coordt.Message[K, N]] struct {
 	qp  *query.Pool[K, N, M]         // the query pool of "get closer peers" queries
 	bcs map[coordt.QueryID]Broadcast // all currently running broadcast operations
 	cfg ConfigPool                   // cfg is a copy of the optional configuration supplied to the Pool
+
+	// nextDue is the earliest time reported by a waiting broadcast during the current
+	// call to Advance. It is recalculated on each call.
+	nextDue time.Time
 }
 
 // NewPool initializes a new broadcast pool. If cfg is nil, the
@@ -85,11 +89,18 @@ func (p *Pool[K, N, M]) Advance(ctx context.Context, now time.Time, ev PoolEvent
 		span.End()
 	}()
 
+	// the earliest due time is accumulated across the broadcasts advanced by this call
+	p.nextDue = time.Time{}
+
 	sm, bev := p.handleEvent(ctx, ev)
 	if sm != nil && bev != nil {
 		if state, terminal := p.advanceBroadcast(ctx, now, sm, bev); terminal {
 			return state
 		}
+	}
+
+	if len(p.bcs) == 0 {
+		return &StatePoolIdle{}
 	}
 
 	// advance other state machines until we have reached a terminal state in any
@@ -104,7 +115,21 @@ func (p *Pool[K, N, M]) Advance(ctx context.Context, now time.Time, ev PoolEvent
 		}
 	}
 
-	return &StatePoolIdle{}
+	// The pool holds broadcasts but none of them had work to hand out, so all of them
+	// are waiting on responses.
+	return &StatePoolWaiting{NextDue: p.nextDue}
+}
+
+// recordDue notes a time reported by a waiting broadcast, keeping the earliest seen
+// during the current call to Advance. The zero time means the broadcast has nothing
+// scheduled and is ignored.
+func (p *Pool[K, N, M]) recordDue(due time.Time) {
+	if due.IsZero() {
+		return
+	}
+	if p.nextDue.IsZero() || due.Before(p.nextDue) {
+		p.nextDue = due
+	}
 }
 
 // handleEvent receives a broadcast [PoolEvent] and returns the corresponding
@@ -192,7 +217,9 @@ func (p *Pool[K, N, M]) advanceBroadcast(ctx context.Context, now time.Time, sm 
 			Target:  st.Target,
 		}, true
 	case *StateBroadcastWaiting:
-		return &StatePoolWaiting{NextDue: st.NextDue}, true
+		// Waiting carries no instruction for the caller, so it does not end the walk.
+		// The time recorded here is reported only if no broadcast has work to hand out.
+		p.recordDue(st.NextDue)
 	case *StateBroadcastStoreRecord[K, N, M]:
 		return &StatePoolStoreRecord[K, N, M]{
 			QueryID: st.QueryID,
