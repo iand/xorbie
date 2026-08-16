@@ -15,6 +15,7 @@ import (
 	"github.com/ipfs/go-libdht/kad"
 
 	"github.com/iand/xorbie/coordt"
+	"github.com/iand/xorbie/netsize"
 	"github.com/iand/xorbie/routing"
 )
 
@@ -37,6 +38,10 @@ type RoutingConfig[K kad.Key[K], N kad.NodeID[K]] struct {
 
 	// Meter is the meter that should be used to record metrics.
 	Meter metric.Meter
+
+	// NetworkSize is the estimator that the results of completed explores are reported to.
+	// A nil estimator means results are not reported.
+	NetworkSize *netsize.Estimator[K, N]
 
 	// QueueCapacity is the maximum number of events that may be waiting to be processed by
 	// the behaviour. Events arriving when the queue is full are dropped. It must be larger
@@ -973,6 +978,14 @@ func (r *RoutingBehaviour[K, N]) advanceExplore(ctx context.Context, now time.Ti
 		// explore waiting for a message response, nothing to do
 		r.exploreDue = st.NextDue
 	case *routing.StateExploreQueryFinished[K, N]:
+		// An explore walks to a key synthesised at a cpl, so its results are spread across the
+		// keyspace rather than clustered on keys this node has been asked about.
+		if r.cfg.NetworkSize != nil && len(st.ClosestNodes) > 0 {
+			if err := r.cfg.NetworkSize.Track(now, st.Target, st.ClosestNodes); err != nil {
+				r.cfg.Logger.Warn("track explore result", slog.Int("cpl", st.Cpl), logAttrError(err))
+			}
+		}
+
 		// nothing to do except notify via telemetry. The explore has released its query,
 		// so it must be advanced again to report when the next cpl falls due.
 		r.pollAgain = true

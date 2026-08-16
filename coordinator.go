@@ -18,6 +18,7 @@ import (
 
 	"github.com/iand/xorbie/brdcst"
 	"github.com/iand/xorbie/coordt"
+	"github.com/iand/xorbie/netsize"
 	"github.com/iand/xorbie/routing"
 )
 
@@ -58,6 +59,9 @@ type Coordinator[K kad.Key[K], N kad.NodeID[K], M coordt.Message[K, N]] struct {
 	// tele provides tracing and metric reporting capabilities
 	tele *Telemetry
 
+	// nse estimates the number of nodes in the network from the results of completed lookups
+	nse *netsize.Estimator[K, N]
+
 	// routingNotifierMu guards access to routingNotifier which may be changed during coordinator operation
 	routingNotifierMu sync.RWMutex
 
@@ -89,7 +93,7 @@ type CoordinatorConfig[K kad.Key[K], N kad.NodeID[K], M coordt.Message[K, N]] st
 	Routing RoutingConfig[K, N]
 
 	// Query is the configuration used for the [PooledQueryBehaviour] which manages the execution of user queries.
-	Query QueryConfig
+	Query QueryConfig[K, N]
 
 	// Brdcst is the configuration used for the [PooledBroadcastBehaviour] which manages the storing of records with other nodes.
 	Brdcst BroadcastConfig[K, N, M]
@@ -147,7 +151,7 @@ func DefaultCoordinatorConfig[K kad.Key[K], N kad.NodeID[K], M coordt.Message[K,
 		TracerProvider: otel.GetTracerProvider(),
 	}
 
-	cfg.Query = *DefaultQueryConfig()
+	cfg.Query = *DefaultQueryConfig[K, N]()
 	cfg.Query.Logger = cfg.Logger.With("behaviour", "pooledquery")
 	cfg.Query.Tracer = cfg.TracerProvider.Tracer(tracerName)
 	cfg.Query.Meter = cfg.MeterProvider.Meter(meterName)
@@ -202,6 +206,14 @@ func NewCoordinator[K kad.Key[K], N kad.NodeID[K], M coordt.Message[K, N]](
 		return nil, fmt.Errorf("init telemetry: %w", err)
 	}
 
+	// Both behaviours report the results of their completed lookups to the one estimator.
+	nse, err := netsize.New[K, N](nil)
+	if err != nil {
+		return nil, fmt.Errorf("network size estimator: %w", err)
+	}
+	cfg.Query.NetworkSize = nse
+	cfg.Routing.NetworkSize = nse
+
 	queryBehaviour, err := NewQueryBehaviour[K, N, M](self, &cfg.Query)
 	if err != nil {
 		return nil, fmt.Errorf("query behaviour: %w", err)
@@ -238,6 +250,7 @@ func NewCoordinator[K kad.Key[K], N kad.NodeID[K], M coordt.Message[K, N]](
 		cfg:    *cfg,
 		rtr:    rtr,
 		rt:     rt,
+		nse:    nse,
 		cancel: cancel,
 		done:   make(chan struct{}),
 
@@ -339,6 +352,13 @@ func (c *Coordinator[K, N, M]) IsRoutable(ctx context.Context, id N) bool {
 	_, exists := c.rt.GetNode(id.Key())
 
 	return exists
+}
+
+// NetworkSize reports the estimated number of nodes in the network, measured from the results
+// of the lookups the coordinator has performed. It returns [netsize.ErrNotEnoughData] when too
+// few lookups have completed for an estimate to be made.
+func (c *Coordinator[K, N, M]) NetworkSize() (netsize.Estimate, error) {
+	return c.nse.Estimate(time.Now())
 }
 
 // GetClosestNodes requests the n closest nodes to the key from the node's local routing table.

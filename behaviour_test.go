@@ -84,7 +84,7 @@ func testPeers(t *testing.T, n int) []*testPeer {
 func newTestQueryBehaviour(t *testing.T, timeout, requestTimeout time.Duration, self tiny.Node) *QueryBehaviour[tiny.Key, tiny.Node, tiny.Message] {
 	t.Helper()
 
-	cfg := DefaultQueryConfig()
+	cfg := DefaultQueryConfig[tiny.Key, tiny.Node]()
 	cfg.Timeout = timeout
 	cfg.RequestTimeout = requestTimeout
 

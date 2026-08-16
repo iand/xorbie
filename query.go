@@ -13,10 +13,11 @@ import (
 	"github.com/ipfs/go-libdht/kad"
 
 	"github.com/iand/xorbie/coordt"
+	"github.com/iand/xorbie/netsize"
 	"github.com/iand/xorbie/query"
 )
 
-type QueryConfig struct {
+type QueryConfig[K kad.Key[K], N kad.NodeID[K]] struct {
 	// Logger is a structured logger that will be used when logging.
 	Logger *slog.Logger
 
@@ -25,6 +26,10 @@ type QueryConfig struct {
 
 	// Meter is the meter that should be used to record metrics.
 	Meter metric.Meter
+
+	// NetworkSize is the estimator that the results of completed queries are reported to.
+	// A nil estimator means results are not reported.
+	NetworkSize *netsize.Estimator[K, N]
 
 	// QueueCapacity is the maximum number of events that may be waiting to be processed by
 	// the behaviour. Events arriving when the queue is full are dropped. It must be larger
@@ -46,7 +51,7 @@ type QueryConfig struct {
 }
 
 // Validate checks the configuration options and returns an error if any have invalid values.
-func (cfg *QueryConfig) Validate() error {
+func (cfg *QueryConfig[K, N]) Validate() error {
 	if cfg.Logger == nil {
 		return &coordt.ConfigurationError{
 			Component: "PooledQueryConfig",
@@ -105,8 +110,8 @@ func (cfg *QueryConfig) Validate() error {
 	return nil
 }
 
-func DefaultQueryConfig() *QueryConfig {
-	return &QueryConfig{
+func DefaultQueryConfig[K kad.Key[K], N kad.NodeID[K]]() *QueryConfig[K, N] {
+	return &QueryConfig[K, N]{
 		Logger:             slog.Default(),
 		Tracer:             coordt.NoopTracer(),
 		Meter:              coordt.NoopMeter(),
@@ -122,7 +127,7 @@ func DefaultQueryConfig() *QueryConfig {
 // QueryBehaviour holds the behaviour and state for managing a pool of queries.
 type QueryBehaviour[K kad.Key[K], N kad.NodeID[K], M coordt.Message[K, N]] struct {
 	// cfg is a copy of the optional configuration supplied to the behaviour.
-	cfg QueryConfig
+	cfg QueryConfig[K, N]
 
 	// performMu is held while Perform is executing to ensure sequential execution of work.
 	performMu sync.Mutex
@@ -167,9 +172,9 @@ type QueryBehaviour[K kad.Key[K], N kad.NodeID[K], M coordt.Message[K, N]] struc
 
 // NewQueryBehaviour initialises a new [QueryBehaviour], setting up the query
 // pool and other internal state.
-func NewQueryBehaviour[K kad.Key[K], N kad.NodeID[K], M coordt.Message[K, N]](self N, cfg *QueryConfig) (*QueryBehaviour[K, N, M], error) {
+func NewQueryBehaviour[K kad.Key[K], N kad.NodeID[K], M coordt.Message[K, N]](self N, cfg *QueryConfig[K, N]) (*QueryBehaviour[K, N, M], error) {
 	if cfg == nil {
-		cfg = DefaultQueryConfig()
+		cfg = DefaultQueryConfig[K, N]()
 	} else if err := cfg.Validate(); err != nil {
 		return nil, err
 	}
@@ -476,6 +481,12 @@ func (p *QueryBehaviour[K, N, M]) advancePool(ctx context.Context, now time.Time
 		// nothing to do except wait for message response or timeout
 		p.nextDue = st.NextDue
 	case *query.StatePoolQueryFinished[K, N]:
+		if p.cfg.NetworkSize != nil && len(st.ClosestNodes) > 0 {
+			if err := p.cfg.NetworkSize.Track(now, st.Target, st.ClosestNodes); err != nil {
+				p.cfg.Logger.Warn("track query result", logAttrError(err))
+			}
+		}
+
 		// the state carries no due time and the pool has removed the query, so the pool
 		// must be advanced again to report when the remaining queries are next due
 		p.pollAgain = true

@@ -14,29 +14,30 @@ import (
 	"github.com/iand/xorbie/coordt"
 	"github.com/iand/xorbie/internal/kadtest"
 	"github.com/iand/xorbie/internal/tiny"
+	"github.com/iand/xorbie/netsize"
 )
 
 func TestQueryConfigValidate(t *testing.T) {
 	t.Run("default is valid", func(t *testing.T) {
-		cfg := DefaultQueryConfig()
+		cfg := DefaultQueryConfig[tiny.Key, tiny.Node]()
 
 		require.NoError(t, cfg.Validate())
 	})
 
 	t.Run("logger not nil", func(t *testing.T) {
-		cfg := DefaultQueryConfig()
+		cfg := DefaultQueryConfig[tiny.Key, tiny.Node]()
 		cfg.Logger = nil
 		require.Error(t, cfg.Validate())
 	})
 
 	t.Run("tracer not nil", func(t *testing.T) {
-		cfg := DefaultQueryConfig()
+		cfg := DefaultQueryConfig[tiny.Key, tiny.Node]()
 		cfg.Tracer = nil
 		require.Error(t, cfg.Validate())
 	})
 
 	t.Run("query concurrency positive", func(t *testing.T) {
-		cfg := DefaultQueryConfig()
+		cfg := DefaultQueryConfig[tiny.Key, tiny.Node]()
 
 		cfg.Concurrency = 0
 		require.Error(t, cfg.Validate())
@@ -45,7 +46,7 @@ func TestQueryConfigValidate(t *testing.T) {
 	})
 
 	t.Run("query timeout positive", func(t *testing.T) {
-		cfg := DefaultQueryConfig()
+		cfg := DefaultQueryConfig[tiny.Key, tiny.Node]()
 
 		cfg.Timeout = 0
 		require.Error(t, cfg.Validate())
@@ -54,7 +55,7 @@ func TestQueryConfigValidate(t *testing.T) {
 	})
 
 	t.Run("request concurrency positive", func(t *testing.T) {
-		cfg := DefaultQueryConfig()
+		cfg := DefaultQueryConfig[tiny.Key, tiny.Node]()
 
 		cfg.RequestConcurrency = 0
 		require.Error(t, cfg.Validate())
@@ -63,7 +64,7 @@ func TestQueryConfigValidate(t *testing.T) {
 	})
 
 	t.Run("request timeout positive", func(t *testing.T) {
-		cfg := DefaultQueryConfig()
+		cfg := DefaultQueryConfig[tiny.Key, tiny.Node]()
 
 		cfg.RequestTimeout = 0
 		require.Error(t, cfg.Validate())
@@ -79,7 +80,7 @@ func TestQueryBehaviourBase(t *testing.T) {
 type QueryBehaviourBaseTestSuite struct {
 	suite.Suite
 
-	cfg   *QueryConfig
+	cfg   *QueryConfig[tiny.Key, tiny.Node]
 	top   *testTopology
 	nodes []*testPeer
 }
@@ -91,7 +92,7 @@ func (ts *QueryBehaviourBaseTestSuite) SetupTest() {
 	ts.top = top
 	ts.nodes = nodes
 
-	ts.cfg = DefaultQueryConfig()
+	ts.cfg = DefaultQueryConfig[tiny.Key, tiny.Node]()
 }
 
 func (ts *QueryBehaviourBaseTestSuite) TestNotifiesNoProgress() {
@@ -278,7 +279,7 @@ func TestQueryBehaviourRequestConcurrency(t *testing.T) {
 	_, nodes, err := linearTopology(6)
 	require.NoError(t, err)
 
-	cfg := DefaultQueryConfig()
+	cfg := DefaultQueryConfig[tiny.Key, tiny.Node]()
 	cfg.Concurrency = 3
 	cfg.RequestConcurrency = 3
 
@@ -323,7 +324,7 @@ func TestQueryBehaviourNotifiesQueryTimeout(t *testing.T) {
 		_, nodes, err := linearTopology(3)
 		require.NoError(t, err)
 
-		cfg := DefaultQueryConfig()
+		cfg := DefaultQueryConfig[tiny.Key, tiny.Node]()
 		cfg.Timeout = time.Minute
 
 		// one request at a time, so the query has nothing to do but wait for the response
@@ -557,7 +558,7 @@ func TestQueryBehaviourReportsDroppedQueryStart(t *testing.T) {
 	_, nodes, err := linearTopology(2)
 	require.NoError(t, err)
 
-	cfg := DefaultQueryConfig()
+	cfg := DefaultQueryConfig[tiny.Key, tiny.Node]()
 	cfg.QueueCapacity = 1
 
 	b, err := NewQueryBehaviour[tiny.Key, tiny.Node, tiny.Message](nodes[0].NodeID, cfg)
@@ -592,7 +593,7 @@ func TestQueryBehaviourBoundsItsInboundQueue(t *testing.T) {
 	_, nodes, err := linearTopology(2)
 	require.NoError(t, err)
 
-	cfg := DefaultQueryConfig()
+	cfg := DefaultQueryConfig[tiny.Key, tiny.Node]()
 	cfg.QueueCapacity = 4
 
 	b, err := NewQueryBehaviour[tiny.Key, tiny.Node, tiny.Message](nodes[0].NodeID, cfg)
@@ -603,4 +604,87 @@ func TestQueryBehaviourBoundsItsInboundQueue(t *testing.T) {
 	}
 
 	require.Equal(t, int64(cfg.QueueCapacity), b.inbound.depth.Load())
+}
+
+// runFindCloserQuery drives a find closer nodes query for target to completion, answering each
+// request the behaviour makes with the nodes the contacted peer holds nearest to the target.
+func runFindCloserQuery(t *testing.T, ctx context.Context, b *QueryBehaviour[tiny.Key, tiny.Node, tiny.Message], nodes []*testPeer, queryID coordt.QueryID, target tiny.Key) {
+	t.Helper()
+
+	b.Notify(ctx, &EventStartFindCloserQuery[tiny.Key, tiny.Node, tiny.Message]{
+		QueryID:           queryID,
+		Target:            target,
+		KnownClosestNodes: nodes[0].RoutingTable.NearestNodes(target, 5),
+		NumResults:        10,
+	})
+
+	routingTables := make(map[string]*testPeer, len(nodes))
+	for _, n := range nodes {
+		routingTables[n.NodeID.String()] = n
+	}
+
+	for range maxPerformIterations {
+		bev, ok := b.Perform(ctx)
+		if !ok {
+			return
+		}
+
+		egc, ok := bev.(*EventOutboundGetCloserNodes[tiny.Key, tiny.Node])
+		if !ok {
+			continue
+		}
+
+		var closer []tiny.Node
+		if peer, found := routingTables[egc.To.String()]; found {
+			closer = peer.RoutingTable.NearestNodes(target, 5)
+		}
+
+		b.Notify(ctx, &EventGetCloserNodesSuccess[tiny.Key, tiny.Node]{
+			QueryID:     queryID,
+			To:          egc.To,
+			Target:      target,
+			CloserNodes: closer,
+		})
+	}
+
+	t.Fatal("query did not finish")
+}
+
+// TestQueryBehaviourTracksQueryResults checks that the results of a completed query reach the
+// configured network size estimator.
+func TestQueryBehaviourTracksQueryResults(t *testing.T) {
+	ctx := kadtest.CtxShort(t)
+
+	_, nodes, err := linearTopology(12)
+	if err != nil {
+		t.Fatalf("linear topology: %v", err)
+	}
+
+	nse, err := netsize.New[tiny.Key, tiny.Node](nil)
+	if err != nil {
+		t.Fatalf("new estimator: %v", err)
+	}
+
+	cfg := DefaultQueryConfig[tiny.Key, tiny.Node]()
+	cfg.NetworkSize = nse
+
+	b, err := NewQueryBehaviour[tiny.Key, tiny.Node, tiny.Message](nodes[0].NodeID, cfg)
+	if err != nil {
+		t.Fatalf("new query behaviour: %v", err)
+	}
+
+	// Several queries are run so that each rank the estimator files a node under holds
+	// observations of more than one distance, which is what lets it measure their spread.
+	for i, target := range nodes[1:] {
+		runFindCloserQuery(t, ctx, b, nodes, coordt.QueryID(fmt.Sprintf("query-%d", i)), target.NodeID.Key())
+	}
+
+	est, err := nse.Estimate(time.Now())
+	if err != nil {
+		t.Fatalf("Estimate: %v", err)
+	}
+
+	if est.Samples == 0 {
+		t.Error("got no samples, want the completed queries to have been tracked")
+	}
 }

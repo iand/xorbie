@@ -1,6 +1,7 @@
 package xorbie
 
 import (
+	"context"
 	"errors"
 	"testing"
 	"testing/synctest"
@@ -11,6 +12,7 @@ import (
 	"github.com/iand/xorbie/coordt"
 	"github.com/iand/xorbie/internal/kadtest"
 	"github.com/iand/xorbie/internal/tiny"
+	"github.com/iand/xorbie/netsize"
 	"github.com/iand/xorbie/routing"
 )
 
@@ -680,4 +682,78 @@ func TestRoutingProbeKeepsNodeWhenCheckDropped(t *testing.T) {
 		_, found := rt.GetNode(checked.Key())
 		require.True(t, found, "node was removed from the routing table")
 	})
+}
+
+// onceExplore is an explore state machine that reports a state on its first advance and is
+// idle from then on.
+type onceExplore struct {
+	state routing.ExploreState
+	done  bool
+}
+
+func (o *onceExplore) Advance(ctx context.Context, now time.Time, ev routing.ExploreEvent) routing.ExploreState {
+	if o.done {
+		return &routing.StateExploreIdle{}
+	}
+	o.done = true
+	return o.state
+}
+
+// TestRoutingBehaviourTracksExploreResults checks that the results of a completed explore
+// reach the configured network size estimator.
+func TestRoutingBehaviourTracksExploreResults(t *testing.T) {
+	ctx := kadtest.CtxShort(t)
+
+	nse, err := netsize.New[tiny.Key, tiny.Node](nil)
+	if err != nil {
+		t.Fatalf("new estimator: %v", err)
+	}
+
+	explore := new(onceExplore)
+
+	cfg := DefaultRoutingConfig[tiny.Key, tiny.Node]()
+	cfg.NetworkSize = nse
+
+	self := tiny.NewNode(tiny.Key(0b11111111))
+	routingBehaviour, err := ComposeRoutingBehaviour(self, idleBootstrap(), idleInclude(), idleProbe(), explore, cfg)
+	if err != nil {
+		t.Fatalf("compose routing behaviour: %v", err)
+	}
+
+	// Each explore reports nodes at increasing distances from its own target, so that the ranks
+	// the estimator files them under hold more than one distinct distance.
+	explores := []struct {
+		target    tiny.Key
+		distances []uint8
+	}{
+		{target: tiny.Key(0b00000000), distances: []uint8{1, 2, 4}},
+		{target: tiny.Key(0b10000000), distances: []uint8{3, 5, 9}},
+		{target: tiny.Key(0b01000000), distances: []uint8{2, 6, 12}},
+	}
+
+	for _, ex := range explores {
+		nodes := make([]tiny.Node, 0, len(ex.distances))
+		for _, d := range ex.distances {
+			nodes = append(nodes, tiny.NewNode(tiny.Key(uint8(ex.target)^d)))
+		}
+
+		explore.state = &routing.StateExploreQueryFinished[tiny.Key, tiny.Node]{
+			Cpl:          1,
+			Target:       ex.target,
+			ClosestNodes: nodes,
+		}
+		explore.done = false
+
+		routingBehaviour.Notify(ctx, &EventRoutingPoll{})
+		routingBehaviour.Perform(ctx)
+	}
+
+	est, err := nse.Estimate(time.Now())
+	if err != nil {
+		t.Fatalf("Estimate: %v", err)
+	}
+
+	if want := 9; est.Samples != want {
+		t.Errorf("got %d samples, want %d", est.Samples, want)
+	}
 }
