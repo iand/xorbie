@@ -297,22 +297,20 @@ func (p *Probe[K, N]) Advance(ctx context.Context, now time.Time, ev ProbeEvent)
 		panic(fmt.Sprintf("unexpected event: %T", tev))
 	}
 
-	// Check if there is capacity
-	if p.cfg.Concurrency <= p.nvl.ongoingCount() {
-		// see if a check can be timed out to free capacity
-		candidate, found := p.nvl.FindCheckPastDeadline(now)
-		if !found {
-			// nothing suitable for time out
-			return &StateProbeWaitingAtCapacity{NextDue: p.nvl.nextDue()}
-		}
-
-		// mark the node as failed since it timed out
+	// A check that has passed its deadline is failed whether or not the probe is at
+	// capacity, since the timeout exists to remove a node that has stopped responding.
+	if candidate, found := p.nvl.FindCheckPastDeadline(now); found {
 		p.rt.RemoveKey(candidate.Key())
 		p.nvl.Remove(candidate)
 		return &StateProbeNodeFailure[K, N]{
 			NodeID: candidate,
 		}
+	}
 
+	if p.atCapacity() {
+		// Only an expiring check can free a slot, so a pending node that is already due
+		// cannot be started and is not what the probe is waiting for.
+		return &StateProbeWaitingAtCapacity{NextDue: p.nvl.nextDeadline()}
 	}
 
 	// there is capacity to start a new check
@@ -333,6 +331,12 @@ func (p *Probe[K, N]) Advance(ctx context.Context, now time.Time, ev ProbeEvent)
 	return &StateProbeConnectivityCheck[K, N]{
 		NodeID: next.NodeID,
 	}
+}
+
+// atCapacity reports whether as many checks are in progress as the probe is allowed to run,
+// so that no further check may be started until one of them completes or times out.
+func (p *Probe[K, N]) atCapacity() bool {
+	return p.cfg.Concurrency <= p.nvl.ongoingCount()
 }
 
 // ProbeState is the state of the [Probe] state machine.
@@ -561,6 +565,14 @@ func (l *nodeValueList[K, N]) nextDue() time.Time {
 	if len(*l.pending) > 0 {
 		earliest = (*l.pending)[0].nv.NextCheckDue
 	}
+
+	return earlier(earliest, l.nextDeadline())
+}
+
+// nextDeadline returns the deadline of the ongoing check that expires soonest, or the
+// zero time if no check is ongoing.
+func (l *nodeValueList[K, N]) nextDeadline() time.Time {
+	var earliest time.Time
 
 	// ongoing is only loosely ordered, so every entry has to be considered
 	for _, n := range l.ongoing {

@@ -953,6 +953,88 @@ func TestProbeReportsNextDueWithSpareCapacity(t *testing.T) {
 	require.Equal(t, now.Add(cfg.Timeout), state.(*StateProbeWaitingWithCapacity).NextDue)
 }
 
+// TestProbeTimesOutCheckWithSpareCapacity checks that a check whose response never arrives is
+// failed once its deadline passes, even though the probe has slots free to start further checks.
+func TestProbeTimesOutCheckWithSpareCapacity(t *testing.T) {
+	ctx := context.Background()
+	now := epoch
+
+	cfg := DefaultProbeConfig()
+	cfg.CheckInterval = 10 * time.Minute
+	cfg.Timeout = time.Minute
+
+	// more slots than there are nodes, so the probe never reaches capacity
+	cfg.Concurrency = 3
+
+	rt, err := triert.New(tiny.NewNode(128), nil)
+	require.NoError(t, err)
+	rt.AddNode(tiny.NewNode(4))
+
+	sm, err := NewProbe(rt, cfg)
+	require.NoError(t, err)
+
+	state := sm.Advance(ctx, now, &EventProbeAdd[tiny.Key, tiny.Node]{NodeID: tiny.NewNode(4)})
+	require.IsType(t, &StateProbeIdle{}, state)
+
+	// the check starts once it falls due, leaving two slots free
+	now = epoch.Add(cfg.CheckInterval)
+	state = sm.Advance(ctx, now, &EventProbePoll{})
+	require.IsType(t, &StateProbeConnectivityCheck[tiny.Key, tiny.Node]{}, state)
+
+	// the node has not responded, but its deadline has not passed either
+	now = now.Add(cfg.Timeout - time.Second)
+	state = sm.Advance(ctx, now, &EventProbePoll{})
+	require.IsType(t, &StateProbeWaitingWithCapacity{}, state)
+	require.True(t, state.(*StateProbeWaitingWithCapacity).NextDue.After(now))
+
+	// once the deadline passes the check is failed
+	now = now.Add(2 * time.Second)
+	state = sm.Advance(ctx, now, &EventProbePoll{})
+	require.IsType(t, &StateProbeNodeFailure[tiny.Key, tiny.Node]{}, state)
+	require.True(t, key.Equal(tiny.Key(4), state.(*StateProbeNodeFailure[tiny.Key, tiny.Node]).NodeID.Key()))
+
+	// the node has been removed from the routing table
+	_, found := rt.GetNode(tiny.Key(4))
+	require.False(t, found)
+}
+
+// TestProbeAtCapacityReportsFutureNextDue checks that a probe with every slot busy reports an
+// instant at which it could make progress, rather than the due time of a node it cannot start.
+func TestProbeAtCapacityReportsFutureNextDue(t *testing.T) {
+	ctx := context.Background()
+	now := epoch
+
+	cfg := DefaultProbeConfig()
+	cfg.CheckInterval = 10 * time.Minute
+	cfg.Timeout = 5 * time.Minute
+	cfg.Concurrency = 1
+
+	rt, err := triert.New(tiny.NewNode(128), nil)
+	require.NoError(t, err)
+	rt.AddNode(tiny.NewNode(4))
+	rt.AddNode(tiny.NewNode(5))
+
+	sm, err := NewProbe(rt, cfg)
+	require.NoError(t, err)
+
+	// both nodes are added at the same instant, so both fall due at the same instant
+	state := sm.Advance(ctx, now, &EventProbeAdd[tiny.Key, tiny.Node]{NodeID: tiny.NewNode(4)})
+	require.IsType(t, &StateProbeIdle{}, state)
+	state = sm.Advance(ctx, now, &EventProbeAdd[tiny.Key, tiny.Node]{NodeID: tiny.NewNode(5)})
+	require.IsType(t, &StateProbeIdle{}, state)
+
+	// the first check saturates the single slot, leaving the second node due but unstartable
+	now = epoch.Add(cfg.CheckInterval)
+	state = sm.Advance(ctx, now, &EventProbePoll{})
+	require.IsType(t, &StateProbeConnectivityCheck[tiny.Key, tiny.Node]{}, state)
+
+	// the deadline of the in flight check is the only thing that can free the slot
+	state = sm.Advance(ctx, now, &EventProbePoll{})
+	require.IsType(t, &StateProbeWaitingAtCapacity{}, state)
+	require.Equal(t, now.Add(cfg.Timeout), state.(*StateProbeWaitingAtCapacity).NextDue)
+	require.True(t, state.(*StateProbeWaitingAtCapacity).NextDue.After(now))
+}
+
 // TestProbeConnectivityCheckDropped checks that a connectivity check which was never sent
 // leaves the node in the routing table and is not left open to time out.
 func TestProbeConnectivityCheckDropped(t *testing.T) {
