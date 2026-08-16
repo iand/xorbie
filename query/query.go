@@ -12,12 +12,19 @@ import (
 	"github.com/iand/xorbie/coordt"
 )
 
+// QueryStats holds the counts and timings a [Query] accumulates as it runs. A query reports
+// them with every state it emits.
+//
+// The counters track requests rather than nodes, and one request can contribute to more than
+// one of them. A node whose request passes its deadline is counted a failure and may still
+// answer afterwards, which is counted a success as well, so Success and Failure together can
+// exceed Requests.
 type QueryStats struct {
-	Start    time.Time
-	End      time.Time
-	Requests int
-	Success  int
-	Failure  int
+	Start    time.Time // the time the first request was dispatched, zero until then
+	End      time.Time // the time the query finished, zero until then
+	Requests int       // the number of requests dispatched
+	Success  int       // the number of requests answered, including answers arriving after the request had timed out
+	Failure  int       // the number of requests that failed or passed their deadline unanswered
 }
 
 // QueryConfig specifies optional configuration for a Query
@@ -78,20 +85,70 @@ func DefaultQueryConfig() *QueryConfig {
 	}
 }
 
+// A Query is one iterative Kademlia lookup.
+//
+// It contacts nodes in ascending order of distance from a target key. Each response supplies
+// further nodes, so the query walks towards the target until the closest nodes it knows of
+// stop improving. The ordering is decided by the [NodeIter] the query is given rather than by
+// the query itself.
+//
+// A query either asks each node for the nodes it holds closest to the target, emitting
+// [StateQueryFindCloser], or sends each node a message and takes the closer nodes from the
+// reply, emitting [StateQuerySendMessage]. [NewFindCloserQuery] creates the first kind and
+// [NewQuery] the second.
+//
+// Every advance walks the whole iterator and returns at the first thing it can do, so one
+// advance produces at most one request. Along the way it marks any node whose request
+// deadline has passed as unresponsive, which frees a concurrency slot. The first node that
+// has not been contacted is then sent a request if a slot is free, and that instruction is
+// what the advance returns. The walk stops early if every slot is already in use.
+//
+// The query is finished when, walking outward, it reaches a node that responded successfully
+// having already counted [QueryConfig.NumResults] successes with no request outstanding
+// nearer the target; or when the walk reaches the end with nothing in flight and nothing
+// left to contact; or when it is cancelled by [EventQueryCancel]. Finishing is sticky, since
+// the finished flag is tested before the event, so every later advance returns the same
+// [StateQueryFinished] carrying the same nodes.
+//
+// Two deadlines apply and the query treats them differently. [QueryConfig.RequestTimeout]
+// bounds a single request and the query enforces it itself by marking the node unresponsive.
+// [QueryConfig.Timeout] bounds the whole query, is set when the first node is contacted, and
+// is only reported: the query keeps running past it and the caller decides what running out
+// of time means.
+//
+// The node the query is running on is excluded throughout, both from the seed set and from
+// the closer nodes carried by any response.
 type Query[K kad.Key[K], N kad.NodeID[K], M coordt.Message[K, N]] struct {
+	// self is the node id of the system the query is running on. It is excluded from the seed
+	// set and from the closer nodes carried by any response.
 	self N
-	id   coordt.QueryID
+
+	// id is the query id the query reports its progress under
+	id coordt.QueryID
 
 	// cfg is a copy of the optional configuration supplied to the query
 	cfg QueryConfig
 
-	iter       NodeIter[K, N]
-	target     K
-	msg        M
-	findCloser bool
-	stats      QueryStats
+	// iter holds every node the query knows of along with the state of the request made to
+	// it, and decides the order in which the query walks them
+	iter NodeIter[K, N]
 
-	// finished indicates that the query has completed its work or has been stopped.
+	// target is the key the query is looking for the closest nodes to
+	target K
+
+	// msg is the message sent to each node contacted, and is unset when findCloser is true
+	msg M
+
+	// findCloser reports whether the query asks each node for the nodes it holds closest to
+	// the target rather than sending it msg
+	findCloser bool
+
+	// stats holds the counts and timings accumulated so far
+	stats QueryStats
+
+	// finished indicates that the query has completed its work or has been stopped. It is
+	// tested before the incoming event, so a finished query reports the same result on every
+	// later advance.
 	finished bool
 
 	// deadline is the time by which the query must have completed. It is set when the
@@ -111,10 +168,20 @@ type Query[K kad.Key[K], N kad.NodeID[K], M coordt.Message[K, N]] struct {
 	// This will contain up to [QueryConfig.NumResults] nodes.
 	targetNodes []N
 
-	// inFlight is number of requests in flight, will be <= concurrency
+	// inFlight is the number of requests awaiting a response. It never exceeds
+	// [QueryConfig.Concurrency], which is what bounds how many requests the query has out at
+	// once.
 	inFlight int
 }
 
+// NewFindCloserQuery creates a query that asks each node it contacts for the nodes that node
+// holds closest to target, and takes those as the nodes to contact next. It sends no message
+// of its own, so the message type parameter goes unused, and it reports the node it wants
+// contacted by emitting [StateQueryFindCloser].
+//
+// The query is seeded with knownClosestNodes, from which self is excluded, and orders every
+// node it learns of using iter. It reports its progress under the query id id. A nil cfg
+// uses [DefaultQueryConfig], and a non-nil one is validated.
 func NewFindCloserQuery[K kad.Key[K], N kad.NodeID[K], M coordt.Message[K, N]](self N, id coordt.QueryID, target K, iter NodeIter[K, N], knownClosestNodes []N, cfg *QueryConfig) (*Query[K, N, M], error) {
 	var empty M
 	q, err := NewQuery(self, id, target, empty, iter, knownClosestNodes, cfg)
@@ -125,6 +192,14 @@ func NewFindCloserQuery[K kad.Key[K], N kad.NodeID[K], M coordt.Message[K, N]](s
 	return q, nil
 }
 
+// NewQuery creates a query that sends msg to each node it contacts and takes the nodes
+// closer to target from each reply, so the reply serves both as the answer to the message
+// and as the source of the next nodes to walk to. It reports the node it wants contacted by
+// emitting [StateQuerySendMessage].
+//
+// The query is seeded with knownClosestNodes, from which self is excluded, and orders every
+// node it learns of using iter. It reports its progress under the query id id. A nil cfg
+// uses [DefaultQueryConfig], and a non-nil one is validated.
 func NewQuery[K kad.Key[K], N kad.NodeID[K], M coordt.Message[K, N]](self N, id coordt.QueryID, target K, msg M, iter NodeIter[K, N], knownClosestNodes []N, cfg *QueryConfig) (*Query[K, N, M], error) {
 	if cfg == nil {
 		cfg = DefaultQueryConfig()
