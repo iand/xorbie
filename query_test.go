@@ -427,9 +427,9 @@ func TestQueryTimeoutUnblocksWaitForQuery(t *testing.T) {
 	})
 }
 
-// TestQuery_deadlock_regression checks that a waiter which is slow to consume query events
+// TestQueryDeadlockRegression checks that a waiter which is slow to consume query events
 // does not deadlock against the behaviour producing them.
-func TestQuery_deadlock_regression(t *testing.T) {
+func TestQueryDeadlockRegression(t *testing.T) {
 	ctx := kadtest.CtxShort(t)
 	msg := tiny.Message{}
 	queryID := coordt.QueryID("test")
