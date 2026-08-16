@@ -18,7 +18,7 @@ var _ coordt.StateMachine[PoolEvent, PoolState] = (*Pool[tiny.Key, tiny.Node, ti
 
 func TestPoolStopWhenNoQueries(t *testing.T) {
 	ctx := context.Background()
-	cfg := DefaultConfigPool()
+	cfg := DefaultPoolConfig()
 
 	self := tiny.NewNode(0)
 
@@ -38,7 +38,7 @@ func TestPool_FollowUp_lifecycle(t *testing.T) {
 	// Second, we store the record with the remaining a and b, while b fails to respond
 
 	ctx := context.Background()
-	cfg := DefaultConfigPool()
+	cfg := DefaultPoolConfig()
 
 	self := tiny.NewNode(0)
 
@@ -58,7 +58,7 @@ func TestPool_FollowUp_lifecycle(t *testing.T) {
 		Target:  target,
 		Message: msg,
 		Seed:    []tiny.Node{a},
-		Config:  DefaultConfigFollowUp(),
+		Config:  DefaultFollowUpConfig(),
 	})
 
 	// the query should attempt to contact the node it was given
@@ -177,7 +177,7 @@ func TestPool_FollowUp_stop_during_query(t *testing.T) {
 	// is cancelled during the query phase
 
 	ctx := context.Background()
-	cfg := DefaultConfigPool()
+	cfg := DefaultPoolConfig()
 
 	self := tiny.NewNode(0)
 
@@ -195,7 +195,7 @@ func TestPool_FollowUp_stop_during_query(t *testing.T) {
 		Target:  target,
 		Message: msg,
 		Seed:    []tiny.Node{a},
-		Config:  DefaultConfigFollowUp(),
+		Config:  DefaultFollowUpConfig(),
 	})
 
 	// the query should attempt to contact the node it was given
@@ -220,7 +220,7 @@ func TestPool_FollowUp_stop_during_query(t *testing.T) {
 
 func TestPool_FollowUp_stop_during_followup_phase(t *testing.T) {
 	ctx := context.Background()
-	cfg := DefaultConfigPool()
+	cfg := DefaultPoolConfig()
 
 	self := tiny.NewNode(0)
 
@@ -239,7 +239,7 @@ func TestPool_FollowUp_stop_during_followup_phase(t *testing.T) {
 		Target:  target,
 		Message: msg,
 		Seed:    []tiny.Node{a, b},
-		Config:  DefaultConfigFollowUp(),
+		Config:  DefaultFollowUpConfig(),
 	})
 
 	require.IsType(t, &StatePoolFindCloser[tiny.Key, tiny.Node]{}, state)
@@ -275,7 +275,7 @@ func TestPool_FollowUp_stop_during_followup_phase(t *testing.T) {
 
 func TestPool_empty_seed(t *testing.T) {
 	ctx := context.Background()
-	cfg := DefaultConfigPool()
+	cfg := DefaultPoolConfig()
 
 	self := tiny.NewNode(0)
 
@@ -295,7 +295,7 @@ func TestPool_empty_seed(t *testing.T) {
 	}
 
 	t.Run("follow up", func(t *testing.T) {
-		startEvt.Config = DefaultConfigFollowUp()
+		startEvt.Config = DefaultFollowUpConfig()
 
 		state := p.Advance(ctx, epoch, startEvt)
 		require.IsType(t, &StatePoolBroadcastFinished[tiny.Key, tiny.Node]{}, state)
@@ -305,7 +305,7 @@ func TestPool_empty_seed(t *testing.T) {
 	})
 
 	t.Run("static", func(t *testing.T) {
-		startEvt.Config = DefaultConfigStatic()
+		startEvt.Config = DefaultStaticConfig()
 		state := p.Advance(ctx, epoch, startEvt)
 		require.IsType(t, &StatePoolBroadcastFinished[tiny.Key, tiny.Node]{}, state)
 
@@ -316,7 +316,7 @@ func TestPool_empty_seed(t *testing.T) {
 
 func TestPool_Static_happy_path(t *testing.T) {
 	ctx := context.Background()
-	cfg := DefaultConfigPool()
+	cfg := DefaultPoolConfig()
 
 	self := tiny.NewNode(0)
 
@@ -336,7 +336,7 @@ func TestPool_Static_happy_path(t *testing.T) {
 		Target:  target,
 		Message: msg,
 		Seed:    []tiny.Node{a, b, c},
-		Config:  DefaultConfigStatic(),
+		Config:  DefaultStaticConfig(),
 	})
 	spsr, ok := state.(*StatePoolStoreRecord[tiny.Key, tiny.Node, tiny.Message])
 	require.True(t, ok, "state is %T", state)
@@ -373,7 +373,7 @@ func TestPool_Static_happy_path(t *testing.T) {
 
 func TestPool_Static_stop_mid_flight(t *testing.T) {
 	ctx := context.Background()
-	cfg := DefaultConfigPool()
+	cfg := DefaultPoolConfig()
 
 	self := tiny.NewNode(0)
 
@@ -393,7 +393,7 @@ func TestPool_Static_stop_mid_flight(t *testing.T) {
 		Target:  target,
 		Message: msg,
 		Seed:    []tiny.Node{a, b, c},
-		Config:  DefaultConfigStatic(),
+		Config:  DefaultStaticConfig(),
 	})
 	require.IsType(t, &StatePoolStoreRecord[tiny.Key, tiny.Node, tiny.Message]{}, state)
 
@@ -422,7 +422,7 @@ func TestPoolState_interface_conformance(t *testing.T) {
 // moves on to storing records, which carry no deadline.
 func TestPoolReportsNextDue(t *testing.T) {
 	ctx := context.Background()
-	cfg := DefaultConfigPool()
+	cfg := DefaultPoolConfig()
 
 	self := tiny.NewNode(0)
 
@@ -440,7 +440,7 @@ func TestPoolReportsNextDue(t *testing.T) {
 		Target:  target,
 		Message: msg,
 		Seed:    []tiny.Node{a},
-		Config:  DefaultConfigFollowUp(),
+		Config:  DefaultFollowUpConfig(),
 	})
 	require.IsType(t, &StatePoolFindCloser[tiny.Key, tiny.Node]{}, state)
 
@@ -469,7 +469,7 @@ func TestPoolReportsNextDue(t *testing.T) {
 // not stop the pool producing work for another broadcast running alongside it.
 func TestPoolAdvancesEveryBroadcast(t *testing.T) {
 	ctx := context.Background()
-	cfg := DefaultConfigPool()
+	cfg := DefaultPoolConfig()
 
 	self := tiny.NewNode(0)
 
@@ -489,7 +489,7 @@ func TestPoolAdvancesEveryBroadcast(t *testing.T) {
 		Target:  target,
 		Message: msg,
 		Seed:    []tiny.Node{tiny.NewNode(0b00000100), tiny.NewNode(0b00000101)},
-		Config:  DefaultConfigStatic(),
+		Config:  DefaultStaticConfig(),
 	})
 	srState, ok := state.(*StatePoolStoreRecord[tiny.Key, tiny.Node, tiny.Message])
 	require.True(t, ok, "state is %T", state)
@@ -508,7 +508,7 @@ func TestPoolAdvancesEveryBroadcast(t *testing.T) {
 		Target:  target,
 		Message: msg,
 		Seed:    []tiny.Node{tiny.NewNode(0b00000110), tiny.NewNode(0b00000111)},
-		Config:  DefaultConfigStatic(),
+		Config:  DefaultStaticConfig(),
 	})
 	srState, ok = state.(*StatePoolStoreRecord[tiny.Key, tiny.Node, tiny.Message])
 	require.True(t, ok, "state is %T", state)
@@ -535,7 +535,7 @@ func TestPoolAdvancesEveryBroadcast(t *testing.T) {
 // pool reports the earliest instant any of them could make progress, ignoring those with none.
 func TestPoolReportsEarliestNextDueAcrossBroadcasts(t *testing.T) {
 	ctx := context.Background()
-	cfg := DefaultConfigPool()
+	cfg := DefaultPoolConfig()
 
 	self := tiny.NewNode(0)
 
@@ -554,7 +554,7 @@ func TestPoolReportsEarliestNextDueAcrossBroadcasts(t *testing.T) {
 		Target:  target,
 		Message: msg,
 		Seed:    []tiny.Node{tiny.NewNode(0b00000100)},
-		Config:  DefaultConfigFollowUp(),
+		Config:  DefaultFollowUpConfig(),
 	})
 	require.IsType(t, &StatePoolFindCloser[tiny.Key, tiny.Node]{}, state)
 
@@ -564,7 +564,7 @@ func TestPoolReportsEarliestNextDueAcrossBroadcasts(t *testing.T) {
 		Target:  target,
 		Message: msg,
 		Seed:    []tiny.Node{tiny.NewNode(0b00000110), tiny.NewNode(0b00000111)},
-		Config:  DefaultConfigStatic(),
+		Config:  DefaultStaticConfig(),
 	})
 	srState, ok := state.(*StatePoolStoreRecord[tiny.Key, tiny.Node, tiny.Message])
 	require.True(t, ok, "state is %T", state)

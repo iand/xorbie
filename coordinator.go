@@ -217,7 +217,7 @@ func NewCoordinator[K kad.Key[K], N kad.NodeID[K], M coordt.Message[K, N]](
 		return nil, fmt.Errorf("network behaviour: %w", err)
 	}
 
-	bpCfg := brdcst.DefaultConfigPool()
+	bpCfg := brdcst.DefaultPoolConfig()
 	bpCfg.Tracer = tele.Tracer
 
 	b, err := brdcst.NewPool[K, N, M](self, bpCfg)
@@ -452,13 +452,13 @@ func (c *Coordinator[K, N, M]) BroadcastRecord(ctx context.Context, msg M) error
 	if err != nil {
 		return err
 	}
-	return c.broadcast(ctx, msg, seeds, brdcst.DefaultConfigFollowUp())
+	return c.broadcast(ctx, msg, seeds, brdcst.DefaultFollowUpConfig())
 }
 
 func (c *Coordinator[K, N, M]) BroadcastStatic(ctx context.Context, msg M, seeds []N) error {
 	ctx, span := c.tele.Tracer.Start(ctx, "Coordinator.BroadcastStatic")
 	defer span.End()
-	return c.broadcast(ctx, msg, seeds, brdcst.DefaultConfigStatic())
+	return c.broadcast(ctx, msg, seeds, brdcst.DefaultStaticConfig())
 }
 
 func (c *Coordinator[K, N, M]) broadcast(ctx context.Context, msg M, seeds []N, cfg brdcst.Config) error {

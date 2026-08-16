@@ -9,8 +9,8 @@ import (
 	"github.com/iand/xorbie/query"
 )
 
-// ConfigPool specifies the configuration for a broadcast [Pool].
-type ConfigPool struct {
+// PoolConfig specifies the configuration for a broadcast [Pool].
+type PoolConfig struct {
 	pCfg *query.PoolConfig
 
 	// Tracer is the tracer that should be used to trace execution.
@@ -19,7 +19,7 @@ type ConfigPool struct {
 
 // Validate checks the configuration options and returns an error if any have
 // invalid values.
-func (cfg *ConfigPool) Validate() error {
+func (cfg *PoolConfig) Validate() error {
 	if cfg.pCfg == nil {
 		return fmt.Errorf("query pool config must not be nil")
 	}
@@ -31,10 +31,10 @@ func (cfg *ConfigPool) Validate() error {
 	return nil
 }
 
-// DefaultConfigPool returns the default configuration options for a Pool.
+// DefaultPoolConfig returns the default configuration options for a Pool.
 // Options may be overridden before passing to NewPool
-func DefaultConfigPool() *ConfigPool {
-	return &ConfigPool{
+func DefaultPoolConfig() *PoolConfig {
+	return &PoolConfig{
 		pCfg:   query.DefaultPoolConfig(),
 		Tracer: coordt.NoopTracer(),
 	}
@@ -47,53 +47,53 @@ type Config interface {
 	broadcastConfig()
 }
 
-func (c *ConfigFollowUp) broadcastConfig()   {}
-func (c *ConfigOptimistic) broadcastConfig() {}
-func (c *ConfigStatic) broadcastConfig()     {}
+func (c *FollowUpConfig) broadcastConfig()   {}
+func (c *OptimisticConfig) broadcastConfig() {}
+func (c *StaticConfig) broadcastConfig()     {}
 
-// ConfigFollowUp specifies the configuration for the [FollowUp] state machine.
-type ConfigFollowUp struct{}
+// FollowUpConfig specifies the configuration for the [FollowUp] state machine.
+type FollowUpConfig struct{}
 
 // Validate checks the configuration options and returns an error if any have
 // invalid values.
-func (c *ConfigFollowUp) Validate() error {
+func (c *FollowUpConfig) Validate() error {
 	return nil
 }
 
-// DefaultConfigFollowUp returns the default configuration options for the
+// DefaultFollowUpConfig returns the default configuration options for the
 // [FollowUp] state machine.
-func DefaultConfigFollowUp() *ConfigFollowUp {
-	return &ConfigFollowUp{}
+func DefaultFollowUpConfig() *FollowUpConfig {
+	return &FollowUpConfig{}
 }
 
-// ConfigOptimistic specifies the configuration for the [Optimistic] state
+// OptimisticConfig specifies the configuration for the [Optimistic] state
 // machine.
-type ConfigOptimistic struct{}
+type OptimisticConfig struct{}
 
 // Validate checks the configuration options and returns an error if any have
 // invalid values.
-func (c *ConfigOptimistic) Validate() error {
+func (c *OptimisticConfig) Validate() error {
 	return nil
 }
 
-// DefaultConfigOptimistic returns the default configuration options for the
+// DefaultOptimisticConfig returns the default configuration options for the
 // [Optimistic] state machine.
-func DefaultConfigOptimistic() *ConfigOptimistic {
-	return &ConfigOptimistic{}
+func DefaultOptimisticConfig() *OptimisticConfig {
+	return &OptimisticConfig{}
 }
 
-// ConfigStatic specifies the configuration for the [Static] state
+// StaticConfig specifies the configuration for the [Static] state
 // machine.
-type ConfigStatic struct{}
+type StaticConfig struct{}
 
 // Validate checks the configuration options and returns an error if any have
 // invalid values.
-func (c *ConfigStatic) Validate() error {
+func (c *StaticConfig) Validate() error {
 	return nil
 }
 
-// DefaultConfigStatic returns the default configuration options for the
+// DefaultStaticConfig returns the default configuration options for the
 // [Static] state machine.
-func DefaultConfigStatic() *ConfigStatic {
-	return &ConfigStatic{}
+func DefaultStaticConfig() *StaticConfig {
+	return &StaticConfig{}
 }

@@ -40,7 +40,7 @@ type Pool[K kad.Key[K], N kad.NodeID[K], M coordt.Message[K, N]] struct {
 	bcs map[coordt.QueryID]Broadcast
 
 	// cfg is a copy of the optional configuration supplied to the Pool
-	cfg ConfigPool
+	cfg PoolConfig
 
 	// nextDue is the earliest time reported by a waiting broadcast during the current
 	// call to Advance. It is recalculated on each call.
@@ -51,9 +51,9 @@ type Pool[K kad.Key[K], N kad.NodeID[K], M coordt.Message[K, N]] struct {
 // closer nodes queries in. The default configuration is used if cfg is nil. The query pool
 // is created here rather than shared with the one serving ordinary queries so that the two
 // can be given different concurrency limits and neither has to coordinate with the other.
-func NewPool[K kad.Key[K], N kad.NodeID[K], M coordt.Message[K, N]](self N, cfg *ConfigPool) (*Pool[K, N, M], error) {
+func NewPool[K kad.Key[K], N kad.NodeID[K], M coordt.Message[K, N]](self N, cfg *PoolConfig) (*Pool[K, N, M], error) {
 	if cfg == nil {
-		cfg = DefaultConfigPool()
+		cfg = DefaultPoolConfig()
 	} else if err := cfg.Validate(); err != nil {
 		return nil, fmt.Errorf("validate pool config: %w", err)
 	}
@@ -143,11 +143,11 @@ func (p *Pool[K, N, M]) handleEvent(ctx context.Context, ev PoolEvent) (sm Broad
 	case *EventPoolStartBroadcast[K, N, M]:
 		// first initialize the state machine for the broadcast desired strategy
 		switch cfg := ev.Config.(type) {
-		case *ConfigFollowUp:
+		case *FollowUpConfig:
 			p.bcs[ev.QueryID] = NewFollowUp(ev.QueryID, p.qp, ev.Message, cfg, p.cfg.Tracer)
-		case *ConfigStatic:
+		case *StaticConfig:
 			p.bcs[ev.QueryID] = NewStatic(ev.QueryID, ev.Message, cfg, p.cfg.Tracer)
-		case *ConfigOptimistic:
+		case *OptimisticConfig:
 			panic("implement me")
 		}
 

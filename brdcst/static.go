@@ -35,7 +35,7 @@ type Static[K kad.Key[K], N kad.NodeID[K], M coordt.Message[K, N]] struct {
 	queryID coordt.QueryID
 
 	// cfg is the configuration supplied to the Static
-	cfg *ConfigStatic
+	cfg *StaticConfig
 
 	// msg is the message sent to each node to store the record
 	msg M
@@ -63,7 +63,7 @@ type Static[K kad.Key[K], N kad.NodeID[K], M coordt.Message[K, N]] struct {
 
 // NewStatic creates a state machine that broadcasts msg to the nodes it is seeded with when
 // it is started, reporting progress under the query id qid.
-func NewStatic[K kad.Key[K], N kad.NodeID[K], M coordt.Message[K, N]](qid coordt.QueryID, msg M, cfg *ConfigStatic, tracer trace.Tracer) *Static[K, N, M] {
+func NewStatic[K kad.Key[K], N kad.NodeID[K], M coordt.Message[K, N]](qid coordt.QueryID, msg M, cfg *StaticConfig, tracer trace.Tracer) *Static[K, N, M] {
 	return &Static[K, N, M]{
 		queryID: qid,
 		cfg:     cfg,

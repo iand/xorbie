@@ -44,7 +44,7 @@ type FollowUp[K kad.Key[K], N kad.NodeID[K], M coordt.Message[K, N]] struct {
 	queryID coordt.QueryID
 
 	// cfg is the configuration supplied to the FollowUp
-	cfg *ConfigFollowUp
+	cfg *FollowUpConfig
 
 	// queryPool is the pool in which the find closer nodes query is run. It belongs to the
 	// broadcast pool that created this state machine and is shared with its siblings, so
@@ -80,7 +80,7 @@ type FollowUp[K kad.Key[K], N kad.NodeID[K], M coordt.Message[K, N]] struct {
 
 // NewFollowUp creates a state machine that broadcasts msg to the nodes closest to the target
 // it is started with, running its query in pool and reporting progress under the query id qid.
-func NewFollowUp[K kad.Key[K], N kad.NodeID[K], M coordt.Message[K, N]](qid coordt.QueryID, pool *query.Pool[K, N, M], msg M, cfg *ConfigFollowUp, tracer trace.Tracer) *FollowUp[K, N, M] {
+func NewFollowUp[K kad.Key[K], N kad.NodeID[K], M coordt.Message[K, N]](qid coordt.QueryID, pool *query.Pool[K, N, M], msg M, cfg *FollowUpConfig, tracer trace.Tracer) *FollowUp[K, N, M] {
 	return &FollowUp[K, N, M]{
 		queryID:   qid,
 		cfg:       cfg,

@@ -3,41 +3,54 @@ package brdcst
 import (
 	"testing"
 
-	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
-func TestConfigPool_Validate(t *testing.T) {
+func TestPoolConfigValidate(t *testing.T) {
 	t.Run("default is valid", func(t *testing.T) {
-		cfg := DefaultConfigPool()
-		assert.NoError(t, cfg.Validate())
+		cfg := DefaultPoolConfig()
+		require.NoError(t, cfg.Validate())
 	})
 
-	t.Run("nil pool config", func(t *testing.T) {
-		cfg := DefaultConfigPool()
+	t.Run("query pool config is not nil", func(t *testing.T) {
+		cfg := DefaultPoolConfig()
 		cfg.pCfg = nil
-		assert.Error(t, cfg.Validate())
+		require.Error(t, cfg.Validate())
+	})
+
+	t.Run("tracer is not nil", func(t *testing.T) {
+		cfg := DefaultPoolConfig()
+		cfg.Tracer = nil
+		require.Error(t, cfg.Validate())
 	})
 }
 
-func TestConfigFollowUp_Validate(t *testing.T) {
+func TestFollowUpConfigValidate(t *testing.T) {
 	t.Run("default is valid", func(t *testing.T) {
-		cfg := DefaultConfigFollowUp()
-		assert.NoError(t, cfg.Validate())
+		cfg := DefaultFollowUpConfig()
+		require.NoError(t, cfg.Validate())
 	})
 }
 
-func TestConfigOptimistic_Validate(t *testing.T) {
+func TestOptimisticConfigValidate(t *testing.T) {
 	t.Run("default is valid", func(t *testing.T) {
-		cfg := DefaultConfigOptimistic()
-		assert.NoError(t, cfg.Validate())
+		cfg := DefaultOptimisticConfig()
+		require.NoError(t, cfg.Validate())
 	})
 }
 
-func TestConfig_interface_conformance(t *testing.T) {
+func TestStaticConfigValidate(t *testing.T) {
+	t.Run("default is valid", func(t *testing.T) {
+		cfg := DefaultStaticConfig()
+		require.NoError(t, cfg.Validate())
+	})
+}
+
+func TestConfigInterfaceConformance(t *testing.T) {
 	configs := []Config{
-		&ConfigFollowUp{},
-		&ConfigOptimistic{},
-		&ConfigStatic{},
+		&FollowUpConfig{},
+		&OptimisticConfig{},
+		&StaticConfig{},
 	}
 	for _, c := range configs {
 		c.broadcastConfig() // drives test coverage
