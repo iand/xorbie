@@ -12,42 +12,57 @@ import (
 	"github.com/iand/xorbie/coordt"
 )
 
-// Static is a [Broadcast] state machine and encapsulates the logic around
-// doing a put operation to a static set of nodes. That static set of nodes
-// is given by the list of seed nodes in the [EventBroadcastStart] event.
+// The Static state machine broadcasts a record to a fixed set of nodes.
+//
+// The set is the seed list carried by the [EventBroadcastStart] event, and no query is run
+// to discover any further nodes. Every seed becomes an outstanding piece of work, and the
+// state machine emits [StateBroadcastStoreRecord] to ask for the record to be stored with
+// one of them, a single node per call.
+//
+// The state machine expects to be notified of the outcome of each store with the
+// [EventBroadcastStoreRecordSuccess] or [EventBroadcastStoreRecordFailure] events. A store
+// request carries no deadline, so a node that never responds leaves the operation
+// outstanding indefinitely. While any node is outstanding and none is left to contact the
+// state machine emits [StateBroadcastWaiting].
+//
+// Once no node is outstanding the state machine emits [StateBroadcastFinished], reporting
+// every node contacted and the error for any that failed.
+//
+// The [EventBroadcastStop] event abandons the operation, recording every node not yet
+// contacted or not yet heard from as having failed.
 type Static[K kad.Key[K], N kad.NodeID[K], M coordt.Message[K, N]] struct {
-	// the unique ID for this broadcast operation
+	// queryID is the unique id of this broadcast operation
 	queryID coordt.QueryID
 
-	// a struct holding configuration options
+	// cfg is the configuration supplied to the Static
 	cfg *ConfigStatic
 
-	// the message that we will send to the closest nodes in the follow-up phase
+	// msg is the message sent to each node to store the record
 	msg M
 
-	// nodes we still need to store records with. This map will be filled with
-	// all the closest nodes after the query has finished.
+	// todo holds the nodes that have yet to be asked to store the record, seeded from the
+	// node list carried by the start event
 	todo map[string]N
 
-	// nodes we have contacted to store the record but haven't heard a response yet
+	// waiting holds the nodes that have been asked to store the record but have yet to reply
 	waiting map[string]N
 
-	// nodes that successfully hold the record for us
+	// success holds the nodes that stored the record
 	success map[string]N
 
-	// nodes that failed to hold the record for us
+	// failed holds the nodes that did not store the record, with the error each returned
 	failed map[string]struct {
 		Node N
 		Err  error
 	}
 
-	// tracer traces the execution of this state machine. It is supplied by the
-	// pool that created it, since the per-broadcast configuration carries no
-	// telemetry of its own.
+	// tracer traces the execution of this state machine. It is supplied by the pool that
+	// created it, since the per-broadcast configuration carries no telemetry of its own.
 	tracer trace.Tracer
 }
 
-// NewStatic initializes a new [Static] struct.
+// NewStatic creates a state machine that broadcasts msg to the nodes it is seeded with when
+// it is started, reporting progress under the query id qid.
 func NewStatic[K kad.Key[K], N kad.NodeID[K], M coordt.Message[K, N]](qid coordt.QueryID, msg M, cfg *ConfigStatic, tracer trace.Tracer) *Static[K, N, M] {
 	return &Static[K, N, M]{
 		queryID: qid,

@@ -12,47 +12,45 @@ import (
 	"github.com/iand/xorbie/query"
 )
 
-// Broadcast is a type alias for a specific kind of state machine that any
-// kind of broadcast strategy state machine must implement. Currently, there
-// are the [FollowUp] and [Static] state machines.
+// Broadcast is the state machine interface that every broadcast strategy implements. A
+// strategy decides which nodes a record is stored with and in what order they are contacted.
 type Broadcast = coordt.StateMachine[BroadcastEvent, BroadcastState]
 
-// Pool is a [coordt.StateMachine] that manages all running broadcast
-// operations. In the future it could limit the number of concurrent operations,
-// but right now it is just keeping track of all running broadcasts. The
-// referenced [query.Pool] is passed down to the respective broadcast state
-// machines. This is not nice because it breaks the hierarchy but makes things
-// way easier.
+// The Pool state machine manages every running broadcast operation.
 //
-// Conceptually, a broadcast consists of finding the closest nodes to a certain
-// key and then storing the record with them. There are a few different
-// strategies that can be applied. For now, these are the [FollowUp] and the [Static]
-// strategies. In the future, we also want to support [Reprovide Sweep].
-// However, this requires a different type of query as we are not looking for
-// the closest nodes but rather enumerating the keyspace. In any case, this
-// broadcast [Pool] would keep track of all running broadcasts.
+// A broadcast is started by the [EventPoolStartBroadcast] event, which names the strategy to
+// use, and runs until it reports that it has finished or is stopped by the
+// [EventPoolStopBroadcast] event. The pool imposes no limit on how many run at once.
 //
-// [Reprovide Sweep]: https://www.notion.so/pl-strflt/DHT-Reprovide-Sweep-3108adf04e9d4086bafb727b17ae033d?pvs=4
+// Advancing the pool advances each of its broadcasts in turn and returns the first
+// instruction any of them produces, so a single advance emits work for one broadcast only.
+// A broadcast that is merely waiting produces no instruction and does not stop the walk. If
+// no broadcast has work the pool reports [StatePoolWaiting], carrying the earliest time any
+// of them could make progress, and if it holds no broadcasts at all it reports
+// [StatePoolIdle].
+//
+// The pool owns the query pool that strategies run their find closer nodes queries in, and
+// passes it to each broadcast it creates. That pool is separate from the one serving
+// ordinary queries, so the two can be given different limits.
 type Pool[K kad.Key[K], N kad.NodeID[K], M coordt.Message[K, N]] struct {
-	qp  *query.Pool[K, N, M]         // the query pool of "get closer peers" queries
-	bcs map[coordt.QueryID]Broadcast // all currently running broadcast operations
-	cfg ConfigPool                   // cfg is a copy of the optional configuration supplied to the Pool
+	// qp is the pool in which broadcasts run their find closer nodes queries
+	qp *query.Pool[K, N, M]
+
+	// bcs holds every running broadcast operation, keyed by its query id
+	bcs map[coordt.QueryID]Broadcast
+
+	// cfg is a copy of the optional configuration supplied to the Pool
+	cfg ConfigPool
 
 	// nextDue is the earliest time reported by a waiting broadcast during the current
 	// call to Advance. It is recalculated on each call.
 	nextDue time.Time
 }
 
-// NewPool initializes a new broadcast pool. If cfg is nil, the
-// [DefaultConfigPool] will be used. Each broadcast pool creates its own query
-// pool ([query.Pool]). A query pool limits the number of concurrent queries
-// and already exists "stand-alone" beneath the [coord.PooledQueryBehaviour].
-// We are initializing a new one in here because:
-//  1. it allows us to apply different limits to either broadcast or ordinary
-//     "get closer nodes" queries
-//  2. the query pool logic will stay simpler
-//  3. we don't need to cross communicated from the broadcast to the query pool
-//     4.
+// NewPool creates a broadcast pool along with the query pool its broadcasts run their find
+// closer nodes queries in. The default configuration is used if cfg is nil. The query pool
+// is created here rather than shared with the one serving ordinary queries so that the two
+// can be given different concurrency limits and neither has to coordinate with the other.
 func NewPool[K kad.Key[K], N kad.NodeID[K], M coordt.Message[K, N]](self N, cfg *ConfigPool) (*Pool[K, N, M], error) {
 	if cfg == nil {
 		cfg = DefaultConfigPool()
@@ -76,12 +74,11 @@ func NewPool[K kad.Key[K], N kad.NodeID[K], M coordt.Message[K, N]](self N, cfg 
 	}, nil
 }
 
-// Advance advances the state of the broadcast [Pool]. It first handles the
-// event by extracting the broadcast state machine that should handle this event
-// from the [Pool.bcs] map and constructing the correct event for that broadcast
-// state machine. If either the state machine wasn't found (shouldn't happen) or
-// there's no corresponding broadcast event ([EventPoolPoll] for example) don't
-// do anything and instead try to advance the other broadcast state machines.
+// Advance advances the state of the broadcast [Pool] by advancing its broadcasts.
+//
+// An event naming a broadcast is translated and delivered to that broadcast first, and the
+// rest are then polled in turn until one of them produces an instruction to return. An event
+// that names no broadcast, such as [EventPoolPoll], goes straight to the walk.
 func (p *Pool[K, N, M]) Advance(ctx context.Context, now time.Time, ev PoolEvent) (out PoolState) {
 	ctx, span := p.cfg.Tracer.Start(ctx, "Pool.Advance", trace.WithAttributes(coordt.AttrInEvent(ev)))
 	defer func() {
@@ -103,7 +100,7 @@ func (p *Pool[K, N, M]) Advance(ctx context.Context, now time.Time, ev PoolEvent
 		return &StatePoolIdle{}
 	}
 
-	// advance other state machines until we have reached a terminal state in any
+	// advance the remaining broadcasts until one of them produces an instruction
 	for _, bsm := range p.bcs {
 		if sm == bsm {
 			continue
@@ -132,11 +129,9 @@ func (p *Pool[K, N, M]) recordDue(due time.Time) {
 	}
 }
 
-// handleEvent receives a broadcast [PoolEvent] and returns the corresponding
-// broadcast state machine [FollowUp] or [Static] plus the event for that
-// state machine. If any return parameter is nil, either the pool event was for
-// an unknown query or the event doesn't need to be forwarded to the state
-// machine.
+// handleEvent translates a [PoolEvent] into the broadcast it is addressed to and the event
+// to deliver to it. Both return values are nil when the event names no broadcast, either
+// because it carries an unknown query id or because it is not addressed to one.
 func (p *Pool[K, N, M]) handleEvent(ctx context.Context, ev PoolEvent) (sm Broadcast, out BroadcastEvent) {
 	_, span := p.cfg.Tracer.Start(ctx, "Pool.handleEvent", trace.WithAttributes(coordt.AttrInEvent(ev)))
 	defer func() {
@@ -201,9 +196,9 @@ func (p *Pool[K, N, M]) handleEvent(ctx context.Context, ev PoolEvent) (sm Broad
 	return nil, nil
 }
 
-// advanceBroadcast advances the given broadcast state machine ([FollowUp] or
-// [Static]) and returns the new [Pool] state ([PoolState]). The additional
-// boolean value indicates whether the returned [PoolState] should be ignored.
+// advanceBroadcast advances the given broadcast and translates the state it reports into a
+// [PoolState]. The boolean reports whether that state is one the pool should return; when it
+// is false the broadcast produced no instruction and the returned state is nil.
 func (p *Pool[K, N, M]) advanceBroadcast(ctx context.Context, now time.Time, sm Broadcast, bev BroadcastEvent) (PoolState, bool) {
 	ctx, span := p.cfg.Tracer.Start(ctx, "Pool.advanceBroadcast", trace.WithAttributes(coordt.AttrInEvent(bev)))
 	defer span.End()
@@ -238,51 +233,44 @@ func (p *Pool[K, N, M]) advanceBroadcast(ctx context.Context, now time.Time, sm 
 	return nil, false
 }
 
-// PoolState must be implemented by all states that a [Pool] can reach. States
-// are basically the events that the [Pool] emits that other state machines or
-// behaviours could react upon.
+// PoolState must be implemented by all states that a [Pool] can reach. A state is the output
+// of advancing the pool, and carries an instruction that the caller is expected to act on.
 type PoolState interface {
 	poolState()
 }
 
-// StatePoolFindCloser indicates to the broadcast behaviour that a broadcast
-// state machine and indirectly the broadcast pool wants to query the given node
-// (NodeID) for closer nodes to the target key (Target).
+// StatePoolFindCloser indicates that one of the pool's broadcasts wants the given node
+// queried for nodes closer to the target key.
 type StatePoolFindCloser[K kad.Key[K], N kad.NodeID[K]] struct {
 	QueryID coordt.QueryID // the id of the broadcast operation that wants to send the message
 	Target  K              // the key that the query wants to find closer nodes for
 	NodeID  N              // the node to send the message to
 }
 
-// StatePoolWaiting indicates that the broadcast [Pool] is waiting for network
-// I/O to finish. It means the [Pool] isn't idle, but there are operations
-// in-flight that it is waiting on to finish.
+// StatePoolWaiting indicates that the broadcast [Pool] holds broadcasts but none of them had
+// work to hand out, so every one of them is waiting on a response.
 type StatePoolWaiting struct {
 	NextDue time.Time // the earliest time advancing the pool could make progress, zero if there is none
 }
 
-// StatePoolStoreRecord indicates to the upper layer that the broadcast [Pool]
-// wants to store a record using the given Message with the given NodeID. The
-// network behaviour should take over and notify the [coord.PooledBroadcastBehaviour]
-// about updates.
+// StatePoolStoreRecord indicates that one of the pool's broadcasts wants the given message
+// sent to the given node to store a record. The caller is expected to report the outcome
+// with an [EventPoolStoreRecordSuccess] or [EventPoolStoreRecordFailure] event.
 type StatePoolStoreRecord[K kad.Key[K], N kad.NodeID[K], M coordt.Message[K, N]] struct {
 	QueryID coordt.QueryID // the id of the broadcast operation that wants to send the message
 	NodeID  N              // the node to send the message to
 	Message M              // the message that should be sent to the remote node
 }
 
-// StatePoolBroadcastFinished indicates that the broadcast operation with the
-// id QueryID has finished. During that operation, all nodes in Contacted have
-// been contacted to store the record. The Contacted slice does not contain
-// the nodes we have queried to find the closest nodes to the target key - only
-// the ones that we eventually contacted to store the record. The Errors map
-// maps the string representation of any node N in the Contacted slice to a
-// potential error struct that contains the original Node and error. In the best
-// case, this Errors map is empty.
+// StatePoolBroadcastFinished indicates that the broadcast operation with the id QueryID has
+// finished. Contacted holds every node asked to store the record, and excludes the nodes
+// queried to find the closest ones. Errors is keyed by the string representation of a node in
+// Contacted and holds the error that node returned, so an operation in which every store
+// succeeded carries an empty map.
 type StatePoolBroadcastFinished[K kad.Key[K], N kad.NodeID[K]] struct {
 	QueryID   coordt.QueryID      // the id of the broadcast operation that has finished
-	Contacted []N                 // all nodes we contacted to store the record (successful or not)
-	Errors    map[string]struct { // any error that occurred for any node that we contacted
+	Contacted []N                 // all nodes asked to store the record, successful or not
+	Errors    map[string]struct { // the error returned by any contacted node that failed
 		Node N     // a node from the Contacted slice
 		Err  error // the error that happened when contacting that Node
 	}
@@ -300,10 +288,8 @@ func (*StatePoolStoreRecord[K, N, M]) poolState()    {}
 func (*StatePoolBroadcastFinished[K, N]) poolState() {}
 func (*StatePoolIdle) poolState()                    {}
 
-// PoolEvent is an event intended to advance the state of the broadcast [Pool]
-// state machine. The [Pool] state machine only operates on events that
-// implement this interface. An "Event" is the opposite of a "State." An "Event"
-// flows into the state machine and a "State" flows out of it.
+// PoolEvent is an event intended to advance the state of the broadcast [Pool] state machine.
+// An event flows into the pool and a state flows out of it.
 type PoolEvent interface {
 	poolEvent()
 }
@@ -312,14 +298,14 @@ type PoolEvent interface {
 // that it can perform housekeeping work such as time out queries.
 type EventPoolPoll struct{}
 
-// EventPoolStartBroadcast is an event that attempts to start a new broadcast
-// operation. This is the entry point.
+// EventPoolStartBroadcast starts a new broadcast operation in the [Pool]. It is the entry
+// point to the pool.
 type EventPoolStartBroadcast[K kad.Key[K], N kad.NodeID[K], M coordt.Message[K, N]] struct {
-	QueryID coordt.QueryID // the unique ID for this operation
-	Target  K              // the key we want to store the record for
-	Message M              // the message that we want to send to the closest peers (this encapsulates the payload we want to store)
-	Seed    []N            // the closest nodes we know so far and from where we start the operation
-	Config  Config         // the configuration for this operation. Most importantly, this defines the broadcast strategy ([FollowUp] or [Static])
+	QueryID coordt.QueryID // the unique id for this operation
+	Target  K              // the key the record is stored under
+	Message M              // the message that carries the record to the nodes it is stored with
+	Seed    []N            // the closest nodes known so far, from where the operation starts
+	Config  Config         // the configuration for this operation, which selects the broadcast strategy
 }
 
 // EventPoolStopBroadcast notifies broadcast [Pool] to stop a broadcast
@@ -334,7 +320,7 @@ type EventPoolStopBroadcast struct {
 type EventPoolGetCloserNodesSuccess[K kad.Key[K], N kad.NodeID[K]] struct {
 	QueryID     coordt.QueryID // the id of the broadcast operation that this response belongs to
 	NodeID      N              // the node the message was sent to and that replied
-	Target      K              // the key we want are searching closer nodes for
+	Target      K              // the key that closer nodes are searched for
 	CloserNodes []N            // the closer nodes sent by the node NodeID
 }
 
@@ -344,26 +330,22 @@ type EventPoolGetCloserNodesSuccess[K kad.Key[K], N kad.NodeID[K]] struct {
 type EventPoolGetCloserNodesFailure[K kad.Key[K], N kad.NodeID[K]] struct {
 	QueryID coordt.QueryID // the id of the query that sent the message
 	NodeID  N              // the node the message was sent to and that has replied
-	Target  K              // the key we want are searching closer nodes for
+	Target  K              // the key that closer nodes are searched for
 	Error   error          // the error that caused the failure, if any
 }
 
-// EventPoolStoreRecordSuccess noties the broadcast [Pool] that storing a record
-// with a remote node (NodeID) was successful. The message that was sent is held
-// in Request, and the returned value is contained in Response. However, in the
-// case of the Amino DHT, nodes do not respond with a confirmation, so Response
-// will always be nil. Check out [pb.Message.ExpectResponse] for information
-// about which requests should receive a response.
+// EventPoolStoreRecordSuccess notifies the broadcast [Pool] that storing a record with a
+// remote node succeeded. Request holds the message that was sent. A response is optional,
+// since a protocol need not confirm a store, so Response may be nil.
 type EventPoolStoreRecordSuccess[K kad.Key[K], N kad.NodeID[K], M coordt.Message[K, N]] struct {
 	QueryID  coordt.QueryID // the id of the query that sent the message
 	NodeID   N              // the node the message was sent to
 	Request  M              // the message that was sent to the remote node
-	Response M              // the reply we got from the remote node (nil in many cases of the Amino DHT)
+	Response M              // the reply from the remote node, nil if the protocol sends none
 }
 
-// EventPoolStoreRecordFailure noties the broadcast [Pool] that storing a record
-// with a remote node (NodeID) has failed. The message that was sent is hold
-// in Request, and the error will be in Error.
+// EventPoolStoreRecordFailure notifies the broadcast [Pool] that storing a record with a
+// remote node failed. Request holds the message that was sent and Error the reason it failed.
 type EventPoolStoreRecordFailure[K kad.Key[K], N kad.NodeID[K], M coordt.Message[K, N]] struct {
 	QueryID coordt.QueryID // the id of the query that sent the message
 	NodeID  N              // the node the message was sent to

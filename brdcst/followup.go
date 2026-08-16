@@ -12,65 +12,84 @@ import (
 	"github.com/iand/xorbie/query"
 )
 
-// FollowUp is a [Broadcast] state machine and encapsulates the logic around
-// doing a "classic" put operation. This mimics the algorithm employed in the
-// original go-libp2p-kad-dht v1 code base. It first queries the closest nodes
-// to a certain target key, and after they were discovered, it "follows up" with
-// storing the record with these closest nodes.
+// The FollowUp state machine broadcasts a record in two phases, finding the nodes closest to
+// a target key and then following up by storing the record with each of them.
+//
+// The first phase is a find closer nodes query, run in the query pool the state machine is
+// given rather than one of its own. The state machine emits [StateBroadcastFindCloser] to
+// ask for a node to be contacted, and expects the outcome as an [EventBroadcastNodeResponse]
+// or [EventBroadcastNodeFailure] event.
+//
+// When that query finishes, every node it settled on becomes an outstanding piece of work
+// for the second phase, and the state machine emits [StateBroadcastStoreRecord] to ask for
+// the record to be stored with one of them, a single node per call. A query that finds no
+// node at all skips the second phase and finishes immediately.
+//
+// The state machine expects to be notified of the outcome of each store with the
+// [EventBroadcastStoreRecordSuccess] or [EventBroadcastStoreRecordFailure] events. A store
+// request carries no deadline, so a node that never responds leaves the operation
+// outstanding indefinitely. While the state machine is waiting in either phase, and has
+// nothing it can hand out, it emits [StateBroadcastWaiting].
+//
+// Once no node is outstanding the state machine emits [StateBroadcastFinished], reporting
+// every node contacted in the second phase and the error for any that failed. The nodes
+// contacted to find the closest ones are not reported.
+//
+// The [EventBroadcastStop] event abandons the operation, cancelling the query if it is still
+// running and recording every node not yet contacted or not yet heard from as having failed.
+//
+// This is the algorithm used by the original go-libp2p-kad-dht v1 code base.
 type FollowUp[K kad.Key[K], N kad.NodeID[K], M coordt.Message[K, N]] struct {
-	// the unique ID for this broadcast operation
+	// queryID is the unique id of this broadcast operation
 	queryID coordt.QueryID
 
-	// a struct holding configuration options
+	// cfg is the configuration supplied to the FollowUp
 	cfg *ConfigFollowUp
 
-	// a reference to the query pool in which the "get closer nodes" queries
-	// will be spawned. This pool is governed by the broadcast [Pool].
-	// Unfortunately, having a reference here breaks the hierarchy but it makes
-	// the logic much easier to implement.
-	pool *query.Pool[K, N, M]
+	// queryPool is the pool in which the find closer nodes query is run. It belongs to the
+	// broadcast pool that created this state machine and is shared with its siblings, so
+	// advancing it may produce work for another broadcast.
+	queryPool *query.Pool[K, N, M]
 
-	// the message that we will send to the closest nodes in the follow-up phase
+	// msg is the message sent to each node to store the record
 	msg M
 
-	// the closest nodes to the target key. This will be filled after the query
-	// for the closest nodes has finished (when the query pool emits a
-	// [query.StatePoolQueryFinished] event).
+	// closest holds the nodes the find closer nodes query settled on, and is filled when
+	// that query finishes
 	closest []N
 
-	// nodes we still need to store records with. This map will be filled with
-	// all the closest nodes after the query has finished.
+	// todo holds the nodes that have yet to be asked to store the record, filled from closest
 	todo map[string]N
 
-	// nodes we have contacted to store the record but haven't heard a response yet
+	// waiting holds the nodes that have been asked to store the record but have yet to reply
 	waiting map[string]N
 
-	// nodes that successfully hold the record for us
+	// success holds the nodes that stored the record
 	success map[string]N
 
-	// nodes that failed to hold the record for us
+	// failed holds the nodes that did not store the record, with the error each returned
 	failed map[string]struct {
 		Node N
 		Err  error
 	}
 
-	// tracer traces the execution of this state machine. It is supplied by the
-	// pool that created it, since the per-broadcast configuration carries no
-	// telemetry of its own.
+	// tracer traces the execution of this state machine. It is supplied by the pool that
+	// created it, since the per-broadcast configuration carries no telemetry of its own.
 	tracer trace.Tracer
 }
 
-// NewFollowUp initializes a new [FollowUp] struct.
+// NewFollowUp creates a state machine that broadcasts msg to the nodes closest to the target
+// it is started with, running its query in pool and reporting progress under the query id qid.
 func NewFollowUp[K kad.Key[K], N kad.NodeID[K], M coordt.Message[K, N]](qid coordt.QueryID, pool *query.Pool[K, N, M], msg M, cfg *ConfigFollowUp, tracer trace.Tracer) *FollowUp[K, N, M] {
 	return &FollowUp[K, N, M]{
-		queryID: qid,
-		cfg:     cfg,
-		pool:    pool,
-		tracer:  tracer,
-		msg:     msg,
-		todo:    map[string]N{},
-		waiting: map[string]N{},
-		success: map[string]N{},
+		queryID:   qid,
+		cfg:       cfg,
+		queryPool: pool,
+		tracer:    tracer,
+		msg:       msg,
+		todo:      map[string]N{},
+		waiting:   map[string]N{},
+		success:   map[string]N{},
 		failed: map[string]struct {
 			Node N
 			Err  error
@@ -78,13 +97,12 @@ func NewFollowUp[K kad.Key[K], N kad.NodeID[K], M coordt.Message[K, N]](qid coor
 	}
 }
 
-// Advance advances the state of the [FollowUp] [Broadcast] state machine. It
-// first handles the event by mapping it to a potential event for the query
-// pool. If the [BroadcastEvent] maps to a [query.PoolEvent], it gets forwarded
-// to the query pool and handled in [FollowUp.advancePool]. If it doesn't map to
-// a query pool event, we check if there are any nodes we should contact to hold
-// the record for us and emit that instruction instead. Similarly, if we're
-// waiting on responses or are completely finished, we return that as well.
+// Advance advances the state of the [FollowUp] [Broadcast] state machine.
+//
+// An event belonging to the first phase is forwarded to the query pool, and whatever that
+// pool reports is returned. Otherwise the state machine looks for a node still to be asked
+// to store the record and emits that instruction, falling back to reporting that it is
+// waiting or that it has finished.
 func (f *FollowUp[K, N, M]) Advance(ctx context.Context, now time.Time, ev BroadcastEvent) (out BroadcastState) {
 	ctx, span := f.tracer.Start(ctx, "FollowUp.Advance", trace.WithAttributes(coordt.AttrInEvent(ev)))
 	defer func() {
@@ -202,17 +220,17 @@ func (f *FollowUp[K, N, M]) handleEvent(ctx context.Context, ev BroadcastEvent) 
 	return nil
 }
 
-// advancePool advances the query pool with the given query pool event that was
-// returned by [FollowUp.handleEvent]. The additional boolean value indicates
-// whether the returned [BroadcastState] should be ignored.
+// advancePool advances the query pool with the event returned by [FollowUp.handleEvent] and
+// translates the state it reports into a [BroadcastState]. The boolean reports whether that
+// state is one the caller should return; when it is false the returned state is nil.
 func (f *FollowUp[K, N, M]) advancePool(ctx context.Context, now time.Time, ev query.PoolEvent) (out BroadcastState, term bool) {
-	ctx, span := f.tracer.Start(ctx, "FollowUp.advanceQuery", trace.WithAttributes(coordt.AttrInEvent(ev)))
+	ctx, span := f.tracer.Start(ctx, "FollowUp.advancePool", trace.WithAttributes(coordt.AttrInEvent(ev)))
 	defer func() {
 		span.SetAttributes(coordt.AttrOutEvent(out))
 		span.End()
 	}()
 
-	state := f.pool.Advance(ctx, now, ev)
+	state := f.queryPool.Advance(ctx, now, ev)
 	switch st := state.(type) {
 	case *query.StatePoolFindCloser[K, N]:
 		return &StateBroadcastFindCloser[K, N]{

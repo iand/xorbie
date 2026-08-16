@@ -40,12 +40,9 @@ func DefaultConfigPool() *ConfigPool {
 	}
 }
 
-// Config is an interface that all broadcast configurations must implement.
-// Because we have multiple ways of broadcasting records to the network, like
-// [FollowUp] or [Static], the [EventPoolStartBroadcast] has a configuration
-// field that depending on the concrete type of [Config] initializes the
-// respective state machine. Then the broadcast operation will be performed
-// based on the encoded rules in that state machine.
+// Config is an interface that all broadcast configurations must implement. A record can be
+// broadcast in more than one way, and the concrete type of the [Config] carried by an
+// [EventPoolStartBroadcast] event selects which strategy the [Pool] creates to run it.
 type Config interface {
 	broadcastConfig()
 }
