@@ -509,7 +509,10 @@ type DynamicExploreSchedule struct {
 // jitter is a factor that is used to increase the calculated interval for the next explore
 // operation by a small random amount. It must be between 0 and 0.05. When zero, no jitter is applied.
 //
-// The interval to the next explore is calculated using the following formula:
+// The first round is spread evenly across one interval, highest CPL first, so that every CPL is
+// explored once before any is explored twice.
+//
+// The interval to each later explore is calculated using the following formula:
 //
 //	interval + (maxCpl - CPL) x interval x multiplier + interval * rand(jitter)
 //
@@ -559,11 +562,14 @@ func NewDynamicExploreSchedule(maxCpl int, start time.Time, interval time.Durati
 		cpls:       new(exploreList),
 	}
 
-	// build the initial schedule
+	// The first round is spread across one base interval, highest cpl first, so that every cpl
+	// is explored once before any is explored twice. Each cpl falls back to its own scaled
+	// interval from then on.
+	step := interval / time.Duration(maxCpl+1)
 	for cpl := maxCpl; cpl >= 0; cpl-- {
 		*s.cpls = append(*s.cpls, &exploreEntry{
 			Cpl: cpl,
-			Due: start.Add(s.cplInterval(cpl)),
+			Due: start.Add(step * time.Duration(maxCpl-cpl+1)),
 		})
 	}
 	heap.Init(s.cpls)

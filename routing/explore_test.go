@@ -430,7 +430,7 @@ func TestExploreQueryTimeout(t *testing.T) {
 	require.NoError(t, err)
 
 	// advance the clock to the due time of the first explore so a query starts
-	now = now.Add(schedule.cplInterval(schedule.maxCpl))
+	now = schedule.NextDue()
 	state := ex.Advance(ctx, now, &EventExplorePoll{})
 	require.IsType(t, &StateExploreFindCloser[tiny.Key, tiny.Node]{}, state)
 
@@ -469,7 +469,7 @@ func TestExploreTimeoutIgnoresLaterResponses(t *testing.T) {
 	require.NoError(t, err)
 
 	// advance the clock to the due time of the first explore so a query starts
-	now = now.Add(schedule.cplInterval(schedule.maxCpl))
+	now = schedule.NextDue()
 	state := ex.Advance(ctx, now, &EventExplorePoll{})
 	require.IsType(t, &StateExploreFindCloser[tiny.Key, tiny.Node]{}, state)
 
@@ -486,7 +486,7 @@ func TestExploreTimeoutIgnoresLaterResponses(t *testing.T) {
 
 	// explore should ignore the late message and now be idle until the next cpl falls due
 	require.IsType(t, &StateExploreIdle{}, state)
-	require.Equal(t, epoch.Add(schedule.cplInterval(schedule.maxCpl-1)), state.(*StateExploreIdle).NextDue)
+	require.Equal(t, schedule.NextDue(), state.(*StateExploreIdle).NextDue)
 }
 
 // TestExploreTimeoutIgnoresLaterFailures checks that a failure from a request that was
@@ -513,7 +513,7 @@ func TestExploreTimeoutIgnoresLaterFailures(t *testing.T) {
 	require.NoError(t, err)
 
 	// advance the clock to the due time of the first explore so a query starts
-	now = now.Add(schedule.cplInterval(schedule.maxCpl))
+	now = schedule.NextDue()
 	state := ex.Advance(ctx, now, &EventExplorePoll{})
 	require.IsType(t, &StateExploreFindCloser[tiny.Key, tiny.Node]{}, state)
 
@@ -529,7 +529,7 @@ func TestExploreTimeoutIgnoresLaterFailures(t *testing.T) {
 
 	// explore should ignore the late message and now be idle until the next cpl falls due
 	require.IsType(t, &StateExploreIdle{}, state)
-	require.Equal(t, epoch.Add(schedule.cplInterval(schedule.maxCpl-1)), state.(*StateExploreIdle).NextDue)
+	require.Equal(t, schedule.NextDue(), state.(*StateExploreIdle).NextDue)
 }
 
 func TestExploreReportsNextDue(t *testing.T) {
@@ -549,14 +549,66 @@ func TestExploreReportsNextDue(t *testing.T) {
 	// while idle the reported time is when the next cpl falls due
 	state := ex.Advance(ctx, now, &EventExplorePoll{})
 	require.IsType(t, &StateExploreIdle{}, state)
-	require.Equal(t, now.Add(schedule.cplInterval(schedule.maxCpl)), state.(*StateExploreIdle).NextDue)
+	require.Equal(t, schedule.NextDue(), state.(*StateExploreIdle).NextDue)
 
 	// once a query is running the reported time follows its request deadline
-	due := now.Add(schedule.cplInterval(schedule.maxCpl))
+	due := schedule.NextDue()
 	state = ex.Advance(ctx, due, &EventExplorePoll{})
 	require.IsType(t, &StateExploreFindCloser[tiny.Key, tiny.Node]{}, state)
 
 	state = ex.Advance(ctx, due, &EventExplorePoll{})
 	require.IsType(t, &StateExploreWaiting{}, state)
 	require.Equal(t, due.Add(cfg.RequestTimeout), state.(*StateExploreWaiting).NextDue)
+}
+
+// TestDynamicExploreScheduleFirstRound checks that a new schedule explores every cpl within one
+// base interval.
+func TestDynamicExploreScheduleFirstRound(t *testing.T) {
+	const (
+		maxCpl   = 14
+		interval = 10 * time.Minute
+	)
+
+	now := epoch
+
+	s, err := NewDynamicExploreSchedule(maxCpl, now, interval, 1, 0)
+	if err != nil {
+		t.Fatalf("new schedule: %v", err)
+	}
+
+	// Every cpl is explored once, in order of decreasing cpl, before the base interval is out.
+	seen := make(map[int]time.Duration, maxCpl+1)
+	want := maxCpl
+	for ts := now; !ts.After(now.Add(interval)); ts = ts.Add(time.Second) {
+		cpl, ok := s.NextCpl(ts)
+		if !ok {
+			continue
+		}
+		if cpl != want {
+			t.Fatalf("got cpl %d at %s, want %d", cpl, ts.Sub(now), want)
+		}
+		seen[cpl] = ts.Sub(now)
+		want--
+	}
+
+	if len(seen) != maxCpl+1 {
+		t.Fatalf("got %d cpls explored within %s, want %d", len(seen), interval, maxCpl+1)
+	}
+
+	// From then on each cpl falls back to its own scaled interval, so over the next half hour
+	// the highest cpl comes round again and the lowest does not.
+	repeats := make(map[int]int)
+	for ts := now.Add(interval); !ts.After(now.Add(interval + 30*time.Minute)); ts = ts.Add(time.Second) {
+		if cpl, ok := s.NextCpl(ts); ok {
+			repeats[cpl]++
+		}
+	}
+
+	if repeats[maxCpl] == 0 {
+		t.Errorf("got no further explores of cpl %d, want it explored every %s", maxCpl, interval)
+	}
+
+	if repeats[0] != 0 {
+		t.Errorf("got %d further explores of cpl 0, want none within %s of its first", repeats[0], s.cplInterval(0))
+	}
 }

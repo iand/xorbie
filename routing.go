@@ -310,9 +310,9 @@ func DefaultRoutingConfig[K kad.Key[K], N kad.NodeID[K]]() *RoutingConfig[K, N] 
 		ExploreRequestConcurrency: 3,               // MAGIC
 		ExploreRequestTimeout:     time.Minute,     // MAGIC
 		ExploreMaximumCpl:         14,
-		ExploreInterval:           time.Hour, // MAGIC
-		ExploreIntervalMultiplier: 1,         // MAGIC
-		ExploreIntervalJitter:     0,         // MAGIC
+		ExploreInterval:           10 * time.Minute, // MAGIC
+		ExploreIntervalMultiplier: 1,                // MAGIC
+		ExploreIntervalJitter:     0,                // MAGIC
 
 	}
 }
