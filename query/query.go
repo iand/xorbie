@@ -237,6 +237,7 @@ func (q *Query[K, N, M]) Advance(ctx context.Context, now time.Time, ev QueryEve
 		return &StateQueryFinished[K, N]{
 			QueryID:      q.id,
 			Stats:        q.stats,
+			Target:       q.target,
 			ClosestNodes: q.targetNodes,
 		}
 	}
@@ -247,6 +248,7 @@ func (q *Query[K, N, M]) Advance(ctx context.Context, now time.Time, ev QueryEve
 		return &StateQueryFinished[K, N]{
 			QueryID:      q.id,
 			Stats:        q.stats,
+			Target:       q.target,
 			ClosestNodes: q.targetNodes,
 		}
 	case *EventQueryNodeResponse[K, N]:
@@ -307,6 +309,7 @@ func (q *Query[K, N, M]) Advance(ctx context.Context, now time.Time, ev QueryEve
 				returnState = &StateQueryFinished[K, N]{
 					QueryID:      q.id,
 					Stats:        q.stats,
+					Target:       q.target,
 					ClosestNodes: q.targetNodes,
 				}
 				return true
@@ -386,6 +389,7 @@ func (q *Query[K, N, M]) Advance(ctx context.Context, now time.Time, ev QueryEve
 	return &StateQueryFinished[K, N]{
 		QueryID:      q.id,
 		Stats:        q.stats,
+		Target:       q.target,
 		ClosestNodes: q.targetNodes,
 	}
 }
@@ -513,6 +517,7 @@ type QueryState interface {
 type StateQueryFinished[K kad.Key[K], N kad.NodeID[K]] struct {
 	QueryID      coordt.QueryID
 	Stats        QueryStats
+	Target       K   // the key the query was looking for the closest nodes to
 	ClosestNodes []N // contains the closest nodes to the target key that were found
 }
 

@@ -215,7 +215,7 @@ func TestExploreFindCloserResponse(t *testing.T) {
 	state = ex.Advance(ctx, now, &EventExploreFindCloserResponse[tiny.Key, tiny.Node]{
 		NodeID: a,
 	})
-	require.IsType(t, &StateExploreQueryFinished{}, state)
+	require.IsType(t, &StateExploreQueryFinished[tiny.Key, tiny.Node]{}, state)
 }
 
 func TestExploreFindCloserFailure(t *testing.T) {
@@ -257,7 +257,7 @@ func TestExploreFindCloserFailure(t *testing.T) {
 	state = ex.Advance(ctx, now, &EventExploreFindCloserFailure[tiny.Key, tiny.Node]{
 		NodeID: a,
 	})
-	require.IsType(t, &StateExploreQueryFinished{}, state)
+	require.IsType(t, &StateExploreQueryFinished[tiny.Key, tiny.Node]{}, state)
 }
 
 func TestExploreProgress(t *testing.T) {
@@ -332,7 +332,7 @@ func TestExploreProgress(t *testing.T) {
 	state = ex.Advance(ctx, now, &EventExploreFindCloserResponse[tiny.Key, tiny.Node]{
 		NodeID: c,
 	})
-	require.IsType(t, &StateExploreQueryFinished{}, state)
+	require.IsType(t, &StateExploreQueryFinished[tiny.Key, tiny.Node]{}, state)
 }
 
 func TestExploreQueriesNextHighestCpl(t *testing.T) {
@@ -387,7 +387,7 @@ func TestExploreQueriesNextHighestCpl(t *testing.T) {
 	state = ex.Advance(ctx, now, &EventExploreFindCloserResponse[tiny.Key, tiny.Node]{
 		NodeID: a,
 	})
-	require.IsType(t, &StateExploreQueryFinished{}, state)
+	require.IsType(t, &StateExploreQueryFinished[tiny.Key, tiny.Node]{}, state)
 
 	// advance the clock to the due time of the second cpl explore that should be started
 	interval2 := schedule.cplInterval(schedule.maxCpl - 1)

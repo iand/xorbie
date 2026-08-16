@@ -312,9 +312,11 @@ func (e *Explore[K, N]) advanceQuery(ctx context.Context, now time.Time, qev que
 	case *query.StateQueryFinished[K, N]:
 		span.SetAttributes(attribute.String("out_state", "StateExploreFinished"))
 		e.clearQuery()
-		return &StateExploreQueryFinished{
-			Cpl:   e.qryCpl,
-			Stats: st.Stats,
+		return &StateExploreQueryFinished[K, N]{
+			Cpl:          e.qryCpl,
+			Stats:        st.Stats,
+			Target:       st.Target,
+			ClosestNodes: st.ClosestNodes,
 		}
 	case *query.StateQueryWaitingAtCapacity:
 		if now.After(st.Deadline) {
@@ -386,9 +388,11 @@ type StateExploreWaiting struct {
 }
 
 // StateExploreQueryFinished indicates that an explore query has finished.
-type StateExploreQueryFinished struct {
-	Cpl   int // the cpl being explored
-	Stats query.QueryStats
+type StateExploreQueryFinished[K kad.Key[K], N kad.NodeID[K]] struct {
+	Cpl          int // the cpl being explored
+	Stats        query.QueryStats
+	Target       K   // the key the query was looking for the closest nodes to
+	ClosestNodes []N // the closest nodes to the target key that were found
 }
 
 // StateExploreQueryTimeout indicates that an explore query has timed out.
@@ -405,12 +409,12 @@ type StateExploreFailure struct {
 }
 
 // exploreState() ensures that only [Explore] states can be assigned to an [ExploreState].
-func (*StateExploreIdle) exploreState()             {}
-func (*StateExploreFindCloser[K, N]) exploreState() {}
-func (*StateExploreWaiting) exploreState()          {}
-func (*StateExploreQueryFinished) exploreState()    {}
-func (*StateExploreQueryTimeout) exploreState()     {}
-func (*StateExploreFailure) exploreState()          {}
+func (*StateExploreIdle) exploreState()                {}
+func (*StateExploreFindCloser[K, N]) exploreState()    {}
+func (*StateExploreWaiting) exploreState()             {}
+func (*StateExploreQueryFinished[K, N]) exploreState() {}
+func (*StateExploreQueryTimeout) exploreState()        {}
+func (*StateExploreFailure) exploreState()             {}
 
 // ExploreEvent is an event intended to advance the state of an [Explore].
 type ExploreEvent interface {

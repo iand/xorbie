@@ -972,7 +972,7 @@ func (r *RoutingBehaviour[K, N]) advanceExplore(ctx context.Context, now time.Ti
 	case *routing.StateExploreWaiting:
 		// explore waiting for a message response, nothing to do
 		r.exploreDue = st.NextDue
-	case *routing.StateExploreQueryFinished:
+	case *routing.StateExploreQueryFinished[K, N]:
 		// nothing to do except notify via telemetry. The explore has released its query,
 		// so it must be advanced again to report when the next cpl falls due.
 		r.pollAgain = true

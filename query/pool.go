@@ -239,6 +239,7 @@ func (p *Pool[K, N, M]) advanceQuery(ctx context.Context, now time.Time, qry *Qu
 		return &StatePoolQueryFinished[K, N]{
 			QueryID:      st.QueryID,
 			Stats:        st.Stats,
+			Target:       st.Target,
 			ClosestNodes: st.ClosestNodes,
 		}, true
 	case *StateQueryWaitingAtCapacity:
@@ -377,6 +378,7 @@ type StatePoolWaitingWithCapacity struct {
 type StatePoolQueryFinished[K kad.Key[K], N kad.NodeID[K]] struct {
 	QueryID      coordt.QueryID
 	Stats        QueryStats
+	Target       K // the key the query was looking for the closest nodes to
 	ClosestNodes []N
 }
 
