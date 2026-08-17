@@ -42,6 +42,12 @@ func TestConfigValidate(t *testing.T) {
 		cfg.TracerProvider = nil
 		require.Error(t, cfg.Validate())
 	})
+
+	t.Run("replication factor greater than zero", func(t *testing.T) {
+		cfg := DefaultCoordinatorConfig[tiny.Key, tiny.Node, tiny.Message]()
+		cfg.ReplicationFactor = 0
+		require.Error(t, cfg.Validate())
+	})
 }
 
 func TestExhaustiveQuery(t *testing.T) {
@@ -526,7 +532,7 @@ func TestCoordinatorBroadcastOptimisticOnceAnEstimateExists(t *testing.T) {
 		require.NoError(t, err)
 
 		ccfg := DefaultCoordinatorConfig[tiny.Key, tiny.Node, tiny.Message]()
-		ccfg.Brdcst.ReplicationFactor = 2
+		ccfg.ReplicationFactor = 2
 
 		c, err := NewCoordinator(nodes[0].NodeID, nodes[0].Router, nodes[0].RoutingTable, tiny.NodeWithCpl, ccfg)
 		require.NoError(t, err)

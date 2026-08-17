@@ -86,6 +86,11 @@ type CoordinatorConfig[K kad.Key[K], N kad.NodeID[K], M coordt.Message[K, N]] st
 	// TracerProvider is the tracer provider to use when initialising tracing
 	TracerProvider trace.TracerProvider
 
+	// ReplicationFactor is the number of nodes a record is stored with, which is also the
+	// number of closest nodes a lookup converges on and the number of nodes an operation
+	// seeds itself with. Kademlia calls this k.
+	ReplicationFactor int
+
 	// Network is the configuration used for the [NetworkBehaviour] which sends requests to other nodes.
 	Network NetworkConfig
 
@@ -122,6 +127,13 @@ func (cfg *CoordinatorConfig[K, N, M]) Validate() error {
 		}
 	}
 
+	if cfg.ReplicationFactor < 1 {
+		return &coordt.ConfigurationError{
+			Component: "CoordinatorConfig",
+			Err:       fmt.Errorf("replication factor must be greater than zero"),
+		}
+	}
+
 	// A node handler queues a response with a behaviour before releasing the network
 	// capacity its request held, so a behaviour whose queue is no larger than that capacity
 	// drops responses it should have been able to accept.
@@ -146,9 +158,10 @@ func (cfg *CoordinatorConfig[K, N, M]) Validate() error {
 
 func DefaultCoordinatorConfig[K kad.Key[K], N kad.NodeID[K], M coordt.Message[K, N]]() *CoordinatorConfig[K, N, M] {
 	cfg := &CoordinatorConfig[K, N, M]{
-		Logger:         slog.Default(),
-		MeterProvider:  otel.GetMeterProvider(),
-		TracerProvider: otel.GetTracerProvider(),
+		Logger:            slog.Default(),
+		MeterProvider:     otel.GetMeterProvider(),
+		TracerProvider:    otel.GetTracerProvider(),
+		ReplicationFactor: 20, // MAGIC
 	}
 
 	cfg.Query = *DefaultQueryConfig[K, N]()
@@ -247,7 +260,7 @@ func NewCoordinator[K kad.Key[K], N kad.NodeID[K], M coordt.Message[K, N]](
 
 	bpCfg := brdcst.DefaultPoolConfig()
 	bpCfg.Tracer = tele.Tracer
-	bpCfg.Optimistic.ReplicationFactor = cfg.Brdcst.ReplicationFactor
+	bpCfg.Optimistic.ReplicationFactor = cfg.ReplicationFactor
 	bpCfg.Optimistic.IndividualCertainty = cfg.Brdcst.OptimisticIndividualCertainty
 	bpCfg.Optimistic.SetStrictness = cfg.Brdcst.OptimisticSetStrictness
 
@@ -391,11 +404,12 @@ func (c *Coordinator[K, N, M]) GetClosestNodes(ctx context.Context, k K, n int) 
 // The supplied [QueryFunc] is called after each successful request to a node with the ID of the node,
 // the response received from the find nodes request made to the node and the current query stats. The query
 // terminates when [QueryFunc] returns an error or when the query has visited the configured minimum number
-// of closest nodes (default 20)
+// of closest nodes.
 //
 // numResults specifies the minimum number of nodes to successfully contact before considering iteration complete.
 // The query is considered to be exhausted when it has received responses from at least this number of nodes
-// and there are no closer nodes remaining to be contacted. A default of 20 is used if this value is less than 1.
+// and there are no closer nodes remaining to be contacted. [CoordinatorConfig.ReplicationFactor] is used if
+// this value is less than 1.
 func (c *Coordinator[K, N, M]) QueryClosest(ctx context.Context, target K, fn coordt.QueryFunc[K, N, M], numResults int) ([]N, coordt.QueryStats, error) {
 	ctx, span := c.tele.Tracer.Start(ctx, "Coordinator.Query")
 	defer span.End()
@@ -404,7 +418,11 @@ func (c *Coordinator[K, N, M]) QueryClosest(ctx context.Context, target K, fn co
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
 
-	seedIDs, err := c.GetClosestNodes(ctx, target, 20)
+	if numResults < 1 {
+		numResults = c.cfg.ReplicationFactor
+	}
+
+	seedIDs, err := c.GetClosestNodes(ctx, target, numResults)
 	if err != nil {
 		return nil, coordt.QueryStats{}, err
 	}
@@ -432,11 +450,12 @@ func (c *Coordinator[K, N, M]) QueryClosest(ctx context.Context, target K, fn co
 // The supplied [QueryFunc] is called after each successful request to a node with the ID of the node,
 // the response received from the find nodes request made to the node and the current query stats. The query
 // terminates when [QueryFunc] returns an error or when the query has visited the configured minimum number
-// of closest nodes (default 20)
+// of closest nodes.
 //
 // numResults specifies the minimum number of nodes to successfully contact before considering iteration complete.
 // The query is considered to be exhausted when it has received responses from at least this number of nodes
-// and there are no closer nodes remaining to be contacted. A default of 20 is used if this value is less than 1.
+// and there are no closer nodes remaining to be contacted. [CoordinatorConfig.ReplicationFactor] is used if
+// this value is less than 1.
 func (c *Coordinator[K, N, M]) QueryMessage(ctx context.Context, msg M, fn coordt.QueryFunc[K, N, M], numResults int) ([]N, coordt.QueryStats, error) {
 	ctx, span := c.tele.Tracer.Start(ctx, "Coordinator.QueryMessage")
 	defer span.End()
@@ -449,7 +468,7 @@ func (c *Coordinator[K, N, M]) QueryMessage(ctx context.Context, msg M, fn coord
 	defer cancel()
 
 	if numResults < 1 {
-		numResults = 20 // TODO: parameterize
+		numResults = c.cfg.ReplicationFactor
 	}
 
 	seedIDs, err := c.GetClosestNodes(ctx, msg.Target(), numResults)
@@ -490,7 +509,7 @@ func (c *Coordinator[K, N, M]) BroadcastFollowUp(ctx context.Context, msg M) err
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
 
-	seeds, err := c.GetClosestNodes(ctx, msg.Target(), c.cfg.Brdcst.ReplicationFactor)
+	seeds, err := c.GetClosestNodes(ctx, msg.Target(), c.cfg.ReplicationFactor)
 	if err != nil {
 		return err
 	}
@@ -563,7 +582,7 @@ func (c *Coordinator[K, N, M]) BroadcastOptimistic(ctx context.Context, msg M) e
 		return fmt.Errorf("network size estimate: %w", err)
 	}
 
-	seeds, err := c.GetClosestNodes(ctx, msg.Target(), c.cfg.Brdcst.ReplicationFactor)
+	seeds, err := c.GetClosestNodes(ctx, msg.Target(), c.cfg.ReplicationFactor)
 	if err != nil {
 		return err
 	}

@@ -37,10 +37,6 @@ type BroadcastConfig[K kad.Key[K], N kad.NodeID[K], M coordt.Message[K, N]] stru
 	// that is not itself an error as a success.
 	VerifyResponse func(req, resp M) error
 
-	// ReplicationFactor is the number of nodes a record is stored with. It is also the number
-	// of nodes a broadcast seeds its lookup from.
-	ReplicationFactor int
-
 	// OptimisticIndividualCertainty is how sure an optimistic broadcast must be that a node it
 	// stores with during its lookup is really one of the ReplicationFactor closest to the key.
 	OptimisticIndividualCertainty float64
@@ -89,7 +85,6 @@ func DefaultBroadcastConfig[K kad.Key[K], N kad.NodeID[K], M coordt.Message[K, N
 		Tracer:                        coordt.NoopTracer(),
 		Meter:                         coordt.NoopMeter(),
 		QueueCapacity:                 1024, // MAGIC
-		ReplicationFactor:             20,   // MAGIC
 		OptimisticIndividualCertainty: 0.9,  // MAGIC
 		OptimisticSetStrictness:       0.1,  // MAGIC
 	}
