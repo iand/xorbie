@@ -80,8 +80,7 @@ type EventBroadcastPoll struct{}
 // EventBroadcastStart is an event that instructs a broadcast state machine to
 // start the operation.
 type EventBroadcastStart[K kad.Key[K], N kad.NodeID[K]] struct {
-	Target K   // the key the record is stored under
-	Seed   []N // the closest nodes known so far, from where the operation starts
+	Target K // the key the record is stored under
 }
 
 // EventBroadcastStop notifies a [Broadcast] state machine to stop the

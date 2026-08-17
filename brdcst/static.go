@@ -14,10 +14,9 @@ import (
 
 // The Static state machine broadcasts a record to a fixed set of nodes.
 //
-// The set is the seed list carried by the [EventBroadcastStart] event, and no query is run
-// to discover any further nodes. Every seed becomes an outstanding piece of work, and the
-// state machine emits [StateBroadcastStoreRecord] to ask for the record to be stored with
-// one of them, a single node per call.
+// Every node in the set becomes an outstanding piece of work, and the state machine emits
+// [StateBroadcastStoreRecord] to ask for the record to be stored with one of them, a single
+// node per call.
 //
 // The state machine expects to be notified of the outcome of each store with the
 // [EventBroadcastStoreRecordSuccess] or [EventBroadcastStoreRecordFailure] events. A store
@@ -35,13 +34,13 @@ type Static[K kad.Key[K], N kad.NodeID[K], M coordt.Message[K, N]] struct {
 	queryID coordt.QueryID
 
 	// cfg is the configuration supplied to the Static
-	cfg *StaticConfig
+	cfg *StaticConfig[K, N]
 
 	// msg is the message sent to each node to store the record
 	msg M
 
-	// todo holds the nodes that have yet to be asked to store the record, seeded from the
-	// node list carried by the start event
+	// todo holds the nodes that have yet to be asked to store the record, taken from the
+	// configured node set when the operation starts
 	todo map[string]N
 
 	// waiting holds the nodes that have been asked to store the record but have yet to reply
@@ -62,25 +61,42 @@ type Static[K kad.Key[K], N kad.NodeID[K], M coordt.Message[K, N]] struct {
 }
 
 // StaticConfig specifies the configuration for the [Static] state machine.
-type StaticConfig struct{}
+type StaticConfig[K kad.Key[K], N kad.NodeID[K]] struct {
+	// Nodes is the set of nodes the record is stored with. It must hold at least one node.
+	Nodes []N
+}
 
-func (c *StaticConfig) broadcastConfig() {}
+func (c *StaticConfig[K, N]) broadcastConfig() {}
 
 // Validate checks the configuration options and returns an error if any have
 // invalid values.
-func (c *StaticConfig) Validate() error {
+func (c *StaticConfig[K, N]) Validate() error {
+	if c == nil {
+		return &coordt.ConfigurationError{
+			Component: "StaticConfig",
+			Err:       fmt.Errorf("config must not be nil"),
+		}
+	}
+
+	if len(c.Nodes) == 0 {
+		return &coordt.ConfigurationError{
+			Component: "StaticConfig",
+			Err:       fmt.Errorf("at least one node must be supplied"),
+		}
+	}
+
 	return nil
 }
 
 // DefaultStaticConfig returns the default configuration options for the
 // [Static] state machine.
-func DefaultStaticConfig() *StaticConfig {
-	return &StaticConfig{}
+func DefaultStaticConfig[K kad.Key[K], N kad.NodeID[K]]() *StaticConfig[K, N] {
+	return &StaticConfig[K, N]{}
 }
 
-// NewStatic creates a state machine that broadcasts msg to the nodes it is seeded with when
-// it is started, reporting progress under the query id qid.
-func NewStatic[K kad.Key[K], N kad.NodeID[K], M coordt.Message[K, N]](qid coordt.QueryID, msg M, cfg *StaticConfig, tracer trace.Tracer) *Static[K, N, M] {
+// NewStatic creates a state machine that broadcasts msg to the nodes in cfg, reporting progress
+// under the query id qid.
+func NewStatic[K kad.Key[K], N kad.NodeID[K], M coordt.Message[K, N]](qid coordt.QueryID, msg M, cfg *StaticConfig[K, N], tracer trace.Tracer) *Static[K, N, M] {
 	return &Static[K, N, M]{
 		queryID: qid,
 		cfg:     cfg,
@@ -112,9 +128,9 @@ func (f *Static[K, N, M]) Advance(ctx context.Context, now time.Time, ev Broadca
 
 	switch ev := ev.(type) {
 	case *EventBroadcastStart[K, N]:
-		span.SetAttributes(attribute.Int("seed", len(ev.Seed)))
-		for _, seed := range ev.Seed {
-			f.todo[seed.String()] = seed
+		span.SetAttributes(attribute.Int("nodes", len(f.cfg.Nodes)))
+		for _, n := range f.cfg.Nodes {
+			f.todo[n.String()] = n
 		}
 	case *EventBroadcastStop:
 		for _, n := range f.todo {

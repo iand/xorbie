@@ -228,8 +228,7 @@ func buildWaitingBroadcastBehaviour(t *testing.T, ctx context.Context) Behaviour
 		QueryID: "test",
 		Target:  msg.Target(),
 		Message: msg,
-		Seed:    []tiny.Node{nodes[1].NodeID},
-		Config:  brdcst.DefaultFollowUpConfig(),
+		Config:  &brdcst.FollowUpConfig[tiny.Key, tiny.Node]{Seeds: []tiny.Node{nodes[1].NodeID}},
 	})
 
 	return b

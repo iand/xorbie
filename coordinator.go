@@ -473,6 +473,8 @@ func (c *Coordinator[K, N, M]) QueryMessage(ctx context.Context, msg M, fn coord
 	return closest, stats, err
 }
 
+// BroadcastRecord stores msg with the nodes closest to its key, contacting none of them until
+// the lookup for that key has settled on them. It blocks until the broadcast finishes.
 func (c *Coordinator[K, N, M]) BroadcastRecord(ctx context.Context, msg M) error {
 	ctx, span := c.tele.Tracer.Start(ctx, "Coordinator.BroadcastRecord")
 	defer span.End()
@@ -484,22 +486,70 @@ func (c *Coordinator[K, N, M]) BroadcastRecord(ctx context.Context, msg M) error
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
 
-	seeds, err := c.GetClosestNodes(ctx, msg.Target(), 20) // TODO: parameterize
+	seeds, err := c.GetClosestNodes(ctx, msg.Target(), c.cfg.Brdcst.ReplicationFactor)
 	if err != nil {
 		return err
 	}
-	return c.broadcast(ctx, msg, seeds, brdcst.DefaultFollowUpConfig())
+
+	return c.broadcast(ctx, msg, &brdcst.FollowUpConfig[K, N]{Seeds: seeds})
 }
 
-func (c *Coordinator[K, N, M]) BroadcastStatic(ctx context.Context, msg M, seeds []N) error {
+// BroadcastStatic stores msg with the given nodes and no others, running no lookup. It blocks
+// until the broadcast finishes.
+func (c *Coordinator[K, N, M]) BroadcastStatic(ctx context.Context, msg M, nodes []N) error {
 	ctx, span := c.tele.Tracer.Start(ctx, "Coordinator.BroadcastStatic")
 	defer span.End()
-	return c.broadcast(ctx, msg, seeds, brdcst.DefaultStaticConfig())
+	if any(msg) == nil {
+		return fmt.Errorf("no message supplied for broadcast")
+	}
+
+	return c.broadcast(ctx, msg, &brdcst.StaticConfig[K, N]{Nodes: nodes})
 }
 
-func (c *Coordinator[K, N, M]) broadcast(ctx context.Context, msg M, seeds []N, cfg brdcst.Config) error {
+// BroadcastOptimistic stores msg with nodes close to its key, storing with each node as the lookup
+// finds it rather than waiting for the lookup to settle. It blocks until the broadcast finishes.
+//
+// The strategy derives its distance thresholds from the size of the network, which is not known
+// until enough lookups have completed. Until then this stores nothing and returns
+// [netsize.ErrNotEnoughData], leaving the caller to fall back to [Coordinator.BroadcastRecord].
+func (c *Coordinator[K, N, M]) BroadcastOptimistic(ctx context.Context, msg M) error {
+	ctx, span := c.tele.Tracer.Start(ctx, "Coordinator.BroadcastOptimistic")
+	defer span.End()
+	if any(msg) == nil {
+		return fmt.Errorf("no message supplied for broadcast")
+	}
+
+	ctx, cancel := context.WithCancel(ctx)
+	defer cancel()
+
+	est, err := c.NetworkSize()
+	if err != nil {
+		return fmt.Errorf("network size estimate: %w", err)
+	}
+
+	seeds, err := c.GetClosestNodes(ctx, msg.Target(), c.cfg.Brdcst.ReplicationFactor)
+	if err != nil {
+		return err
+	}
+
+	return c.broadcast(ctx, msg, &brdcst.OptimisticConfig[K, N]{
+		Seeds:               seeds,
+		NetworkSize:         est.Size,
+		ReplicationFactor:   c.cfg.Brdcst.ReplicationFactor,
+		IndividualCertainty: c.cfg.Brdcst.OptimisticIndividualCertainty,
+		SetStrictness:       c.cfg.Brdcst.OptimisticSetStrictness,
+	})
+}
+
+func (c *Coordinator[K, N, M]) broadcast(ctx context.Context, msg M, cfg brdcst.Config) error {
 	ctx, span := c.tele.Tracer.Start(ctx, "Coordinator.broadcast")
 	defer span.End()
+
+	if cfg == nil {
+		return fmt.Errorf("no configuration supplied for broadcast")
+	} else if err := cfg.Validate(); err != nil {
+		return err
+	}
 
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
@@ -511,7 +561,6 @@ func (c *Coordinator[K, N, M]) broadcast(ctx context.Context, msg M, seeds []N, 
 		QueryID: queryID,
 		Target:  msg.Target(),
 		Message: msg,
-		Seed:    seeds,
 		Notify:  waiter,
 		Config:  cfg,
 	}

@@ -12,7 +12,6 @@ type EventStartBroadcast[K kad.Key[K], N kad.NodeID[K], M coordt.Message[K, N]] 
 	QueryID coordt.QueryID
 	Target  K
 	Message M
-	Seed    []N
 	Config  brdcst.Config
 	Notify  QueryMonitor[K, N, M, *EventBroadcastFinished[K, N]]
 }

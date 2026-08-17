@@ -47,8 +47,7 @@ func TestBroadcastBehaviourContactsAllSeeds(t *testing.T) {
 		QueryID: "test",
 		Target:  msg.Target(),
 		Message: msg,
-		Seed:    seeds,
-		Config:  brdcst.DefaultStaticConfig(),
+		Config:  &brdcst.StaticConfig[tiny.Key, tiny.Node]{Nodes: seeds},
 		Notify:  NewBroadcastWaiter[tiny.Key, tiny.Node, tiny.Message](0),
 	})
 

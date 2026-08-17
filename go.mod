@@ -14,6 +14,8 @@ require (
 	google.golang.org/protobuf v1.36.12 // indirect
 )
 
+require gonum.org/v1/gonum v0.17.0
+
 require (
 	github.com/cenkalti/backoff/v5 v5.0.3 // indirect
 	github.com/cespare/xxhash/v2 v2.3.0 // indirect

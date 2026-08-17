@@ -14,15 +14,27 @@ import (
 )
 
 func TestFollowUpConfigValidate(t *testing.T) {
-	t.Run("default is valid", func(t *testing.T) {
-		cfg := DefaultFollowUpConfig()
+	t.Run("default has no seeds", func(t *testing.T) {
+		cfg := DefaultFollowUpConfig[tiny.Key, tiny.Node]()
+		require.Error(t, cfg.Validate())
+	})
+
+	t.Run("valid with a seed", func(t *testing.T) {
+		cfg := DefaultFollowUpConfig[tiny.Key, tiny.Node]()
+		cfg.Seeds = []tiny.Node{tiny.NewNode(4)}
 		require.NoError(t, cfg.Validate())
+	})
+
+	t.Run("nil", func(t *testing.T) {
+		var cfg *FollowUpConfig[tiny.Key, tiny.Node]
+		require.Error(t, cfg.Validate())
 	})
 }
 
 // newFollowUpTest creates a FollowUp state machine for the query id "test", running its query
-// in a pool built from qcfg. A nil qcfg uses the default query pool configuration.
-func newFollowUpTest(t *testing.T, qcfg *query.PoolConfig) *FollowUp[tiny.Key, tiny.Node, tiny.Message] {
+// in a pool built from qcfg and starting from seeds. A nil qcfg uses the default query pool
+// configuration.
+func newFollowUpTest(t *testing.T, qcfg *query.PoolConfig, seeds ...tiny.Node) *FollowUp[tiny.Key, tiny.Node, tiny.Message] {
 	t.Helper()
 	if qcfg == nil {
 		qcfg = query.DefaultPoolConfig()
@@ -30,8 +42,11 @@ func newFollowUpTest(t *testing.T, qcfg *query.PoolConfig) *FollowUp[tiny.Key, t
 	qp, err := query.NewPool[tiny.Key, tiny.Node, tiny.Message](tiny.NewNode(0), qcfg)
 	require.NoError(t, err)
 
+	cfg := DefaultFollowUpConfig[tiny.Key, tiny.Node]()
+	cfg.Seeds = seeds
+
 	msg := tiny.Message{Content: "store this"}
-	return NewFollowUp(testQueryID, qp, msg, DefaultFollowUpConfig(), coordt.NoopTracer())
+	return NewFollowUp(testQueryID, qp, msg, cfg, coordt.NoopTracer())
 }
 
 // TestFollowUpQueriesBeforeStoring checks that a follow up broadcast finds the nodes closest
@@ -40,15 +55,15 @@ func TestFollowUpQueriesBeforeStoring(t *testing.T) {
 	ctx := context.Background()
 	now := epoch
 
-	sm := newFollowUpTest(t, nil)
-
 	target := tiny.Key(0b00000001)
 	a := tiny.NewNode(4)
 
 	// the first phase contacts the seed node rather than storing anything with it
+
+	sm := newFollowUpTest(t, nil, a)
+
 	state := sm.Advance(ctx, now, &EventBroadcastStart[tiny.Key, tiny.Node]{
 		Target: target,
-		Seed:   []tiny.Node{a},
 	})
 	fcState, ok := state.(*StateBroadcastFindCloser[tiny.Key, tiny.Node])
 	require.True(t, ok, "state is %T", state)
@@ -117,13 +132,12 @@ func TestFollowUpWaitsAtQueryPoolCapacity(t *testing.T) {
 	qcfg := query.DefaultPoolConfig()
 	qcfg.Concurrency = 1
 
-	sm := newFollowUpTest(t, qcfg)
-
 	a := tiny.NewNode(4)
+
+	sm := newFollowUpTest(t, qcfg, a)
 
 	state := sm.Advance(ctx, now, &EventBroadcastStart[tiny.Key, tiny.Node]{
 		Target: tiny.Key(0b00000001),
-		Seed:   []tiny.Node{a},
 	})
 	require.IsType(t, &StateBroadcastFindCloser[tiny.Key, tiny.Node]{}, state)
 
@@ -145,13 +159,12 @@ func TestFollowUpFinishesWhenQueryTimesOut(t *testing.T) {
 	// the request must outlive the query so the query is still waiting when its deadline passes
 	qcfg.RequestTimeout = time.Hour
 
-	sm := newFollowUpTest(t, qcfg)
-
 	a := tiny.NewNode(4)
+
+	sm := newFollowUpTest(t, qcfg, a)
 
 	state := sm.Advance(ctx, now, &EventBroadcastStart[tiny.Key, tiny.Node]{
 		Target: tiny.Key(0b00000001),
-		Seed:   []tiny.Node{a},
 	})
 	require.IsType(t, &StateBroadcastFindCloser[tiny.Key, tiny.Node]{}, state)
 
@@ -177,11 +190,10 @@ func TestFollowUpStopDuringQueryFinishes(t *testing.T) {
 	ctx := context.Background()
 	now := epoch
 
-	sm := newFollowUpTest(t, nil)
+	sm := newFollowUpTest(t, nil, tiny.NewNode(4))
 
 	state := sm.Advance(ctx, now, &EventBroadcastStart[tiny.Key, tiny.Node]{
 		Target: tiny.Key(0b00000001),
-		Seed:   []tiny.Node{tiny.NewNode(4)},
 	})
 	require.IsType(t, &StateBroadcastFindCloser[tiny.Key, tiny.Node]{}, state)
 
@@ -199,15 +211,14 @@ func TestFollowUpStopDuringStoresRecordsOutstandingNodesAsFailed(t *testing.T) {
 	ctx := context.Background()
 	now := epoch
 
-	sm := newFollowUpTest(t, nil)
-
 	target := tiny.Key(0b00000001)
 	a := tiny.NewNode(4)
 	b := tiny.NewNode(5)
 
+	sm := newFollowUpTest(t, nil, a)
+
 	state := sm.Advance(ctx, now, &EventBroadcastStart[tiny.Key, tiny.Node]{
 		Target: target,
-		Seed:   []tiny.Node{a},
 	})
 	require.IsType(t, &StateBroadcastFindCloser[tiny.Key, tiny.Node]{}, state)
 
@@ -241,13 +252,12 @@ func TestFollowUpReportsStoreFailures(t *testing.T) {
 	ctx := context.Background()
 	now := epoch
 
-	sm := newFollowUpTest(t, nil)
-
 	a := tiny.NewNode(4)
+
+	sm := newFollowUpTest(t, nil, a)
 
 	state := sm.Advance(ctx, now, &EventBroadcastStart[tiny.Key, tiny.Node]{
 		Target: tiny.Key(0b00000001),
-		Seed:   []tiny.Node{a},
 	})
 	require.IsType(t, &StateBroadcastFindCloser[tiny.Key, tiny.Node]{}, state)
 

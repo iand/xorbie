@@ -52,6 +52,10 @@ type Pool[K kad.Key[K], N kad.NodeID[K], M coordt.Message[K, N]] struct {
 // [EventPoolStartBroadcast] event selects which strategy the [Pool] creates to run it.
 type Config interface {
 	broadcastConfig()
+
+	// Validate checks the configuration options and returns an error if any have invalid
+	// values.
+	Validate() error
 }
 
 // PoolConfig specifies the configuration for a broadcast [Pool].
@@ -180,18 +184,21 @@ func (p *Pool[K, N, M]) handleEvent(ctx context.Context, ev PoolEvent) (sm Broad
 	case *EventPoolStartBroadcast[K, N, M]:
 		// first initialize the state machine for the broadcast desired strategy
 		switch cfg := ev.Config.(type) {
-		case *FollowUpConfig:
+		case *FollowUpConfig[K, N]:
 			p.bcs[ev.QueryID] = NewFollowUp(ev.QueryID, p.qp, ev.Message, cfg, p.cfg.Tracer)
-		case *StaticConfig:
+		case *StaticConfig[K, N]:
 			p.bcs[ev.QueryID] = NewStatic(ev.QueryID, ev.Message, cfg, p.cfg.Tracer)
-		case *OptimisticConfig:
-			panic("implement me")
+		case *OptimisticConfig[K, N]:
+			o, err := NewOptimistic(ev.QueryID, p.qp, ev.Message, cfg, p.cfg.Tracer)
+			if err != nil {
+				return nil, nil
+			}
+			p.bcs[ev.QueryID] = o
 		}
 
 		// start the new state machine
 		return p.bcs[ev.QueryID], &EventBroadcastStart[K, N]{
 			Target: ev.Target,
-			Seed:   ev.Seed,
 		}
 
 	case *EventPoolStopBroadcast:
@@ -341,7 +348,6 @@ type EventPoolStartBroadcast[K kad.Key[K], N kad.NodeID[K], M coordt.Message[K, 
 	QueryID coordt.QueryID // the unique id for this operation
 	Target  K              // the key the record is stored under
 	Message M              // the message that carries the record to the nodes it is stored with
-	Seed    []N            // the closest nodes known so far, from where the operation starts
 	Config  Config         // the configuration for this operation, which selects the broadcast strategy
 }
 

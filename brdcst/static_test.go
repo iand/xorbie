@@ -12,20 +12,34 @@ import (
 )
 
 func TestStaticConfigValidate(t *testing.T) {
-	t.Run("default is valid", func(t *testing.T) {
-		cfg := DefaultStaticConfig()
+	t.Run("default has no nodes", func(t *testing.T) {
+		cfg := DefaultStaticConfig[tiny.Key, tiny.Node]()
+		require.Error(t, cfg.Validate())
+	})
+
+	t.Run("valid with a node", func(t *testing.T) {
+		cfg := DefaultStaticConfig[tiny.Key, tiny.Node]()
+		cfg.Nodes = []tiny.Node{tiny.NewNode(4)}
 		require.NoError(t, cfg.Validate())
+	})
+
+	t.Run("nil", func(t *testing.T) {
+		var cfg *StaticConfig[tiny.Key, tiny.Node]
+		require.Error(t, cfg.Validate())
 	})
 }
 
 // testQueryID is the id the broadcast state machines under test report progress under.
 const testQueryID = coordt.QueryID("test")
 
-// newStaticTest creates a Static state machine for the query id "test".
-func newStaticTest(t *testing.T) *Static[tiny.Key, tiny.Node, tiny.Message] {
+// newStaticTest creates a Static state machine for the query id "test" that stores with nodes.
+func newStaticTest(t *testing.T, nodes ...tiny.Node) *Static[tiny.Key, tiny.Node, tiny.Message] {
 	t.Helper()
+	cfg := DefaultStaticConfig[tiny.Key, tiny.Node]()
+	cfg.Nodes = nodes
+
 	msg := tiny.Message{Content: "store this"}
-	return NewStatic(testQueryID, msg, DefaultStaticConfig(), coordt.NoopTracer())
+	return NewStatic(testQueryID, msg, cfg, coordt.NoopTracer())
 }
 
 // TestStaticContactsEverySeedOnce checks that a static broadcast asks for its record to be
@@ -34,12 +48,13 @@ func TestStaticContactsEverySeedOnce(t *testing.T) {
 	ctx := context.Background()
 	now := epoch
 
-	sm := newStaticTest(t)
-
 	seeds := []tiny.Node{tiny.NewNode(4), tiny.NewNode(5), tiny.NewNode(6)}
 
 	contacted := make(map[string]bool, len(seeds))
-	state := sm.Advance(ctx, now, &EventBroadcastStart[tiny.Key, tiny.Node]{Seed: seeds})
+
+	sm := newStaticTest(t, seeds...)
+
+	state := sm.Advance(ctx, now, &EventBroadcastStart[tiny.Key, tiny.Node]{})
 	for range seeds {
 		st, ok := state.(*StateBroadcastStoreRecord[tiny.Key, tiny.Node, tiny.Message])
 		require.True(t, ok, "state is %T", state)
@@ -63,11 +78,9 @@ func TestStaticWaitingReportsNothingDue(t *testing.T) {
 	ctx := context.Background()
 	now := epoch
 
-	sm := newStaticTest(t)
+	sm := newStaticTest(t, tiny.NewNode(4))
 
-	state := sm.Advance(ctx, now, &EventBroadcastStart[tiny.Key, tiny.Node]{
-		Seed: []tiny.Node{tiny.NewNode(4)},
-	})
+	state := sm.Advance(ctx, now, &EventBroadcastStart[tiny.Key, tiny.Node]{})
 	require.IsType(t, &StateBroadcastStoreRecord[tiny.Key, tiny.Node, tiny.Message]{}, state)
 
 	state = sm.Advance(ctx, now, &EventBroadcastPoll{})
@@ -81,12 +94,12 @@ func TestStaticFinishesWhenEveryStoreIsReported(t *testing.T) {
 	ctx := context.Background()
 	now := epoch
 
-	sm := newStaticTest(t)
-
 	a := tiny.NewNode(4)
 	b := tiny.NewNode(5)
 
-	state := sm.Advance(ctx, now, &EventBroadcastStart[tiny.Key, tiny.Node]{Seed: []tiny.Node{a, b}})
+	sm := newStaticTest(t, a, b)
+
+	state := sm.Advance(ctx, now, &EventBroadcastStart[tiny.Key, tiny.Node]{})
 	require.IsType(t, &StateBroadcastStoreRecord[tiny.Key, tiny.Node, tiny.Message]{}, state)
 	state = sm.Advance(ctx, now, &EventBroadcastPoll{})
 	require.IsType(t, &StateBroadcastStoreRecord[tiny.Key, tiny.Node, tiny.Message]{}, state)
@@ -135,13 +148,14 @@ func TestStaticStopRecordsOutstandingNodesAsFailed(t *testing.T) {
 	ctx := context.Background()
 	now := epoch
 
-	sm := newStaticTest(t)
-
 	a := tiny.NewNode(4)
 	b := tiny.NewNode(5)
 
 	// one node is contacted, leaving the other still to do
-	state := sm.Advance(ctx, now, &EventBroadcastStart[tiny.Key, tiny.Node]{Seed: []tiny.Node{a, b}})
+
+	sm := newStaticTest(t, a, b)
+
+	state := sm.Advance(ctx, now, &EventBroadcastStart[tiny.Key, tiny.Node]{})
 	require.IsType(t, &StateBroadcastStoreRecord[tiny.Key, tiny.Node, tiny.Message]{}, state)
 
 	state = sm.Advance(ctx, now, &EventBroadcastStop{})
@@ -160,11 +174,11 @@ func TestStaticFinishedIsSticky(t *testing.T) {
 	ctx := context.Background()
 	now := epoch
 
-	sm := newStaticTest(t)
-
 	a := tiny.NewNode(4)
 
-	state := sm.Advance(ctx, now, &EventBroadcastStart[tiny.Key, tiny.Node]{Seed: []tiny.Node{a}})
+	sm := newStaticTest(t, a)
+
+	state := sm.Advance(ctx, now, &EventBroadcastStart[tiny.Key, tiny.Node]{})
 	require.IsType(t, &StateBroadcastStoreRecord[tiny.Key, tiny.Node, tiny.Message]{}, state)
 
 	state = sm.Advance(ctx, now, &EventBroadcastStoreRecordSuccess[tiny.Key, tiny.Node, tiny.Message]{

@@ -37,9 +37,9 @@ func TestPoolConfigValidate(t *testing.T) {
 
 func TestConfigInterfaceConformance(t *testing.T) {
 	configs := []Config{
-		&FollowUpConfig{},
-		&OptimisticConfig{},
-		&StaticConfig{},
+		&FollowUpConfig[tiny.Key, tiny.Node]{},
+		&OptimisticConfig[tiny.Key, tiny.Node]{},
+		&StaticConfig[tiny.Key, tiny.Node]{},
 	}
 	for _, c := range configs {
 		c.broadcastConfig() // drives test coverage
@@ -87,8 +87,7 @@ func TestPoolFollowUpLifecycle(t *testing.T) {
 		QueryID: queryID,
 		Target:  target,
 		Message: msg,
-		Seed:    []tiny.Node{a},
-		Config:  DefaultFollowUpConfig(),
+		Config:  &FollowUpConfig[tiny.Key, tiny.Node]{Seeds: []tiny.Node{a}},
 	})
 
 	// the query should attempt to contact the node it was given
@@ -218,8 +217,7 @@ func TestPoolStopsNamedBroadcast(t *testing.T) {
 		QueryID: queryID,
 		Target:  tiny.Key(0b00000001),
 		Message: msg,
-		Seed:    []tiny.Node{tiny.NewNode(0b00000100)},
-		Config:  DefaultStaticConfig(),
+		Config:  &StaticConfig[tiny.Key, tiny.Node]{Nodes: []tiny.Node{tiny.NewNode(0b00000100)}},
 	})
 	require.IsType(t, &StatePoolStoreRecord[tiny.Key, tiny.Node, tiny.Message]{}, state)
 
@@ -270,8 +268,7 @@ func TestPoolReportsNextDue(t *testing.T) {
 		QueryID: queryID,
 		Target:  target,
 		Message: msg,
-		Seed:    []tiny.Node{a},
-		Config:  DefaultFollowUpConfig(),
+		Config:  &FollowUpConfig[tiny.Key, tiny.Node]{Seeds: []tiny.Node{a}},
 	})
 	require.IsType(t, &StatePoolFindCloser[tiny.Key, tiny.Node]{}, state)
 
@@ -319,8 +316,7 @@ func TestPoolAdvancesEveryBroadcast(t *testing.T) {
 		QueryID: first,
 		Target:  target,
 		Message: msg,
-		Seed:    []tiny.Node{tiny.NewNode(0b00000100), tiny.NewNode(0b00000101)},
-		Config:  DefaultStaticConfig(),
+		Config:  &StaticConfig[tiny.Key, tiny.Node]{Nodes: []tiny.Node{tiny.NewNode(0b00000100), tiny.NewNode(0b00000101)}},
 	})
 	srState, ok := state.(*StatePoolStoreRecord[tiny.Key, tiny.Node, tiny.Message])
 	require.True(t, ok, "state is %T", state)
@@ -338,8 +334,7 @@ func TestPoolAdvancesEveryBroadcast(t *testing.T) {
 		QueryID: second,
 		Target:  target,
 		Message: msg,
-		Seed:    []tiny.Node{tiny.NewNode(0b00000110), tiny.NewNode(0b00000111)},
-		Config:  DefaultStaticConfig(),
+		Config:  &StaticConfig[tiny.Key, tiny.Node]{Nodes: []tiny.Node{tiny.NewNode(0b00000110), tiny.NewNode(0b00000111)}},
 	})
 	srState, ok = state.(*StatePoolStoreRecord[tiny.Key, tiny.Node, tiny.Message])
 	require.True(t, ok, "state is %T", state)
@@ -384,8 +379,7 @@ func TestPoolReportsEarliestNextDueAcrossBroadcasts(t *testing.T) {
 		QueryID: followUp,
 		Target:  target,
 		Message: msg,
-		Seed:    []tiny.Node{tiny.NewNode(0b00000100)},
-		Config:  DefaultFollowUpConfig(),
+		Config:  &FollowUpConfig[tiny.Key, tiny.Node]{Seeds: []tiny.Node{tiny.NewNode(0b00000100)}},
 	})
 	require.IsType(t, &StatePoolFindCloser[tiny.Key, tiny.Node]{}, state)
 
@@ -394,8 +388,7 @@ func TestPoolReportsEarliestNextDueAcrossBroadcasts(t *testing.T) {
 		QueryID: static,
 		Target:  target,
 		Message: msg,
-		Seed:    []tiny.Node{tiny.NewNode(0b00000110), tiny.NewNode(0b00000111)},
-		Config:  DefaultStaticConfig(),
+		Config:  &StaticConfig[tiny.Key, tiny.Node]{Nodes: []tiny.Node{tiny.NewNode(0b00000110), tiny.NewNode(0b00000111)}},
 	})
 	srState, ok := state.(*StatePoolStoreRecord[tiny.Key, tiny.Node, tiny.Message])
 	require.True(t, ok, "state is %T", state)

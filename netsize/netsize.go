@@ -169,7 +169,7 @@ func (e *Estimator[K, N]) Track(now time.Time, target K, closest []N) error {
 
 	for i, node := range sorted {
 		obs := append(e.obs[i], observation{
-			distance: normedDistance(target, node.Key()),
+			distance: NormedDistance(target, node.Key()),
 			at:       now,
 		})
 		if len(obs) > e.cfg.MaxObservations {
@@ -283,11 +283,11 @@ func meanVariance(obs []observation) (float64, float64) {
 	return mean, sumSquares / float64(len(obs)-1)
 }
 
-// normedDistance returns the distance between two keys as a fraction of the widest distance the
+// NormedDistance returns the distance between two keys as a fraction of the widest distance the
 // keyspace holds. A kad.Key carries no numeric value, so the leading bits are read out
-// individually; scaling them to the unit interval leaves the fit and the bounds on it
-// independent of the key width.
-func normedDistance[K kad.Key[K]](a, b K) float64 {
+// individually; scaling them to the unit interval leaves the result independent of the key
+// width.
+func NormedDistance[K kad.Key[K]](a, b K) float64 {
 	distance := a.Xor(b)
 
 	bits := min(distance.BitLen(), distanceBits)

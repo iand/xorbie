@@ -36,6 +36,18 @@ type BroadcastConfig[K kad.Key[K], N kad.NodeID[K], M coordt.Message[K, N]] stru
 	// the record, returning a nil error when it did. A nil VerifyResponse takes every reply
 	// that is not itself an error as a success.
 	VerifyResponse func(req, resp M) error
+
+	// ReplicationFactor is the number of nodes a record is stored with. It is also the number
+	// of nodes a broadcast seeds its lookup from.
+	ReplicationFactor int
+
+	// OptimisticIndividualCertainty is how sure an optimistic broadcast must be that a node it
+	// stores with during its lookup is really one of the ReplicationFactor closest to the key.
+	OptimisticIndividualCertainty float64
+
+	// OptimisticSetStrictness is the probability that the closest set is in fact further from
+	// the key than an optimistic broadcast's set threshold.
+	OptimisticSetStrictness float64
 }
 
 // Validate checks the configuration options and returns an error if any have invalid values.
@@ -73,10 +85,13 @@ func (cfg *BroadcastConfig[K, N, M]) Validate() error {
 
 func DefaultBroadcastConfig[K kad.Key[K], N kad.NodeID[K], M coordt.Message[K, N]]() *BroadcastConfig[K, N, M] {
 	return &BroadcastConfig[K, N, M]{
-		Logger:        slog.Default(),
-		Tracer:        coordt.NoopTracer(),
-		Meter:         coordt.NoopMeter(),
-		QueueCapacity: 1024, // MAGIC
+		Logger:                        slog.Default(),
+		Tracer:                        coordt.NoopTracer(),
+		Meter:                         coordt.NoopMeter(),
+		QueueCapacity:                 1024, // MAGIC
+		ReplicationFactor:             20,   // MAGIC
+		OptimisticIndividualCertainty: 0.9,  // MAGIC
+		OptimisticSetStrictness:       0.1,  // MAGIC
 	}
 }
 
@@ -300,7 +315,6 @@ func (b *PooledBroadcastBehaviour[K, N, M]) perfomNextInbound(ctx context.Contex
 			QueryID: ev.QueryID,
 			Target:  ev.Target,
 			Message: ev.Message,
-			Seed:    ev.Seed,
 			Config:  ev.Config,
 		}
 		if ev.Notify != nil {

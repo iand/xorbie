@@ -14,6 +14,7 @@ import (
 	"github.com/iand/xorbie/coordt"
 	"github.com/iand/xorbie/internal/kadtest"
 	"github.com/iand/xorbie/internal/tiny"
+	"github.com/iand/xorbie/netsize"
 )
 
 func TestConfigValidate(t *testing.T) {
@@ -485,5 +486,67 @@ func TestCoordinatorContinuesWhenPeerStalls(t *testing.T) {
 			})
 		}
 		wg.Wait()
+	})
+}
+
+// TestCoordinatorBroadcastOptimisticNeedsAnEstimate checks that an optimistic broadcast started
+// before the coordinator can estimate the size of the network is refused, and refused in a way
+// the caller can tell apart from any other failure so that it can fall back to another strategy.
+func TestCoordinatorBroadcastOptimisticNeedsAnEstimate(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		ctx := kadtest.CtxBubble(t)
+
+		_, nodes, err := linearTopology(4)
+		require.NoError(t, err)
+
+		ccfg := DefaultCoordinatorConfig[tiny.Key, tiny.Node, tiny.Message]()
+
+		c, err := NewCoordinator(nodes[0].NodeID, nodes[0].Router, nodes[0].RoutingTable, tiny.NodeWithCpl, ccfg)
+		require.NoError(t, err)
+		t.Cleanup(func() { require.NoError(t, c.Close()) })
+
+		// nothing has been looked up, so the estimator has nothing to work from
+		_, err = c.NetworkSize()
+		require.ErrorIs(t, err, netsize.ErrNotEnoughData)
+
+		msg := tiny.Message{Content: "store this", TargetKey: nodes[3].NodeID.Key()}
+		err = c.BroadcastOptimistic(ctx, msg)
+		require.ErrorIs(t, err, netsize.ErrNotEnoughData)
+	})
+}
+
+// TestCoordinatorBroadcastOptimisticOnceAnEstimateExists checks that an optimistic broadcast runs
+// once the coordinator has an estimate to work from, and that it takes its replication factor and
+// certainties from the coordinator's configuration rather than from the caller.
+func TestCoordinatorBroadcastOptimisticOnceAnEstimateExists(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		ctx := kadtest.CtxBubble(t)
+
+		_, nodes, err := linearTopology(4)
+		require.NoError(t, err)
+
+		ccfg := DefaultCoordinatorConfig[tiny.Key, tiny.Node, tiny.Message]()
+		ccfg.Brdcst.ReplicationFactor = 2
+
+		c, err := NewCoordinator(nodes[0].NodeID, nodes[0].Router, nodes[0].RoutingTable, tiny.NodeWithCpl, ccfg)
+		require.NoError(t, err)
+		t.Cleanup(func() { require.NoError(t, c.Close()) })
+
+		// each rank needs more than one observation before the estimator will report anything,
+		// so several lookups are run to warm it
+		qfn := func(ctx context.Context, id tiny.Node, msg tiny.Message, stats coordt.QueryStats) error {
+			return nil
+		}
+		for _, n := range nodes[1:] {
+			_, _, err = c.QueryClosest(ctx, n.NodeID.Key(), qfn, 20)
+			require.NoError(t, err)
+		}
+
+		_, err = c.NetworkSize()
+		require.NoError(t, err)
+
+		msg := tiny.Message{Content: "store this", TargetKey: nodes[3].NodeID.Key()}
+		err = c.BroadcastOptimistic(ctx, msg)
+		require.NoError(t, err)
 	})
 }
