@@ -176,6 +176,59 @@ func TestExploreFirstQueriesForMaximumCpl(t *testing.T) {
 	require.IsType(t, &StateExploreWaiting{}, state)
 }
 
+// TestExploreQueriesInOrderOfDistanceFromCplKey checks that an explore contacts nodes in order of
+// their distance from the key it synthesised for the cpl, rather than in order of their distance
+// from the local node.
+func TestExploreQueriesInOrderOfDistanceFromCplKey(t *testing.T) {
+	ctx := context.Background()
+	now := epoch
+	cfg := DefaultExploreConfig()
+
+	self := tiny.NewNode(128)
+	rt, err := triert.New(self, nil)
+	require.NoError(t, err)
+
+	// An explore for cpl 1 synthesises a key that lies far from self, so the two orderings can be
+	// told apart: nearTarget is the closer of the two nodes to that key and farTarget is the
+	// closer to self.
+	cplKey, err := tiny.NodeWithCpl(self.Key(), 1)
+	require.NoError(t, err)
+
+	nearTarget := tiny.NewNode(193)
+	farTarget := tiny.NewNode(129)
+
+	require.Equal(t, -1, cplKey.Key().Xor(nearTarget.Key()).Compare(cplKey.Key().Xor(farTarget.Key())))
+	require.Equal(t, -1, self.Key().Xor(farTarget.Key()).Compare(self.Key().Xor(nearTarget.Key())))
+
+	rt.AddNode(nearTarget)
+	rt.AddNode(farTarget)
+
+	schedule, err := NewDynamicExploreSchedule(1, now, time.Hour, 1, 0)
+	require.NoError(t, err)
+
+	ex, err := NewExplore(self, rt, tiny.NodeWithCpl, schedule, cfg)
+	require.NoError(t, err)
+
+	// advance the clock to the due time of the first explore
+	now = schedule.NextDue()
+
+	// the first request goes to the node nearest the synthesised key
+	state := ex.Advance(ctx, now, &EventExplorePoll{})
+	require.IsType(t, &StateExploreFindCloser[tiny.Key, tiny.Node]{}, state)
+
+	st := state.(*StateExploreFindCloser[tiny.Key, tiny.Node])
+	require.Equal(t, 1, st.Cpl)
+	require.Equal(t, cplKey.Key(), st.Target)
+	require.Equal(t, nearTarget, st.NodeID)
+
+	// the second goes to the node further from it, which is the nearer of the two to self
+	state = ex.Advance(ctx, now, &EventExplorePoll{})
+	require.IsType(t, &StateExploreFindCloser[tiny.Key, tiny.Node]{}, state)
+
+	st = state.(*StateExploreFindCloser[tiny.Key, tiny.Node])
+	require.Equal(t, farTarget, st.NodeID)
+}
+
 func TestExploreFindCloserResponse(t *testing.T) {
 	ctx := context.Background()
 	now := epoch

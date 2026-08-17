@@ -273,7 +273,7 @@ func (e *Explore[K, N]) Advance(ctx context.Context, now time.Time, ev ExploreEv
 	}
 	seeds := e.rt.NearestNodes(node.Key(), 20)
 
-	iter := query.NewClosestNodesIter[K, N](e.self.Key())
+	iter := query.NewClosestNodesIter[K, N](node.Key())
 
 	qryCfg := query.DefaultQueryConfig()
 	qryCfg.Concurrency = e.cfg.RequestConcurrency
