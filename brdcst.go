@@ -216,13 +216,26 @@ func (b *PooledBroadcastBehaviour[K, N, M]) Notify(ctx context.Context, ev Behav
 // event that starts a broadcast leaves a caller waiting on its monitor for a terminal event
 // that would otherwise never arrive.
 func (b *PooledBroadcastBehaviour[K, N, M]) reportDropped(ctx context.Context, ev BehaviourEvent) {
-	sev, ok := ev.(*EventStartBroadcast[K, N, M])
-	if !ok || sev.Notify == nil {
+	var queryID coordt.QueryID
+	var monitor QueryMonitor[K, N, M, *EventBroadcastFinished[K, N]]
+
+	switch ev := ev.(type) {
+	case *EventStartFollowUpBroadcast[K, N, M]:
+		queryID, monitor = ev.QueryID, ev.Notify
+	case *EventStartStaticBroadcast[K, N, M]:
+		queryID, monitor = ev.QueryID, ev.Notify
+	case *EventStartOptimisticBroadcast[K, N, M]:
+		queryID, monitor = ev.QueryID, ev.Notify
+	default:
 		return
 	}
 
-	n := &queryNotifier[K, N, M, *EventBroadcastFinished[K, N]]{monitor: sev.Notify}
-	n.NotifyFinished(ctx, &EventBroadcastFinished[K, N]{QueryID: sev.QueryID, Err: ErrEventDropped})
+	if monitor == nil {
+		return
+	}
+
+	n := &queryNotifier[K, N, M, *EventBroadcastFinished[K, N]]{monitor: monitor}
+	n.NotifyFinished(ctx, &EventBroadcastFinished[K, N]{QueryID: queryID, Err: ErrEventDropped})
 }
 
 func (b *PooledBroadcastBehaviour[K, N, M]) Perform(ctx context.Context) (out BehaviourEvent, performed bool) {
@@ -310,12 +323,35 @@ func (b *PooledBroadcastBehaviour[K, N, M]) perfomNextInbound(ctx context.Contex
 
 	var cmd brdcst.PoolEvent
 	switch ev := pev.Event.(type) {
-	case *EventStartBroadcast[K, N, M]:
-		cmd = &brdcst.EventPoolStartBroadcast[K, N, M]{
+	case *EventStartFollowUpBroadcast[K, N, M]:
+		cmd = &brdcst.EventPoolStartFollowUp[K, N, M]{
 			QueryID: ev.QueryID,
 			Target:  ev.Target,
 			Message: ev.Message,
-			Config:  ev.Config,
+			Seed:    ev.KnownClosestNodes,
+		}
+		if ev.Notify != nil {
+			b.notifiers[ev.QueryID] = &queryNotifier[K, N, M, *EventBroadcastFinished[K, N]]{monitor: ev.Notify}
+		}
+
+	case *EventStartStaticBroadcast[K, N, M]:
+		cmd = &brdcst.EventPoolStartStatic[K, N, M]{
+			QueryID: ev.QueryID,
+			Target:  ev.Target,
+			Message: ev.Message,
+			Nodes:   ev.Nodes,
+		}
+		if ev.Notify != nil {
+			b.notifiers[ev.QueryID] = &queryNotifier[K, N, M, *EventBroadcastFinished[K, N]]{monitor: ev.Notify}
+		}
+
+	case *EventStartOptimisticBroadcast[K, N, M]:
+		cmd = &brdcst.EventPoolStartOptimistic[K, N, M]{
+			QueryID:     ev.QueryID,
+			Target:      ev.Target,
+			Message:     ev.Message,
+			Seed:        ev.KnownClosestNodes,
+			NetworkSize: ev.NetworkSize,
 		}
 		if ev.Notify != nil {
 			b.notifiers[ev.QueryID] = &queryNotifier[K, N, M, *EventBroadcastFinished[K, N]]{monitor: ev.Notify}

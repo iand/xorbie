@@ -15,52 +15,27 @@ import (
 func TestOptimisticConfigValidate(t *testing.T) {
 	testCases := []struct {
 		name  string
-		cfg   *OptimisticConfig[tiny.Key, tiny.Node]
+		cfg   *OptimisticConfig
 		valid bool
 	}{
 		{
-			name:  "default without a network size or seeds",
-			cfg:   DefaultOptimisticConfig[tiny.Key, tiny.Node](),
-			valid: false,
-		},
-		{
-			name:  "complete",
-			cfg:   validOptimisticConfig(),
+			name:  "default",
+			cfg:   DefaultOptimisticConfig(),
 			valid: true,
 		},
 		{
-			name: "no seeds",
-			cfg: func() *OptimisticConfig[tiny.Key, tiny.Node] {
-				cfg := validOptimisticConfig()
-				cfg.Seeds = nil
+			name: "zero replication factor",
+			cfg: func() *OptimisticConfig {
+				cfg := DefaultOptimisticConfig()
+				cfg.ReplicationFactor = 0
 				return cfg
 			}(),
 			valid: false,
 		},
 		{
-			name:  "nil",
-			cfg:   nil,
-			valid: false,
-		},
-		{
-			name:  "zero network size",
-			cfg:   optimisticConfig(0, 20, tiny.NewNode(4)),
-			valid: false,
-		},
-		{
-			name:  "negative network size",
-			cfg:   optimisticConfig(-1, 20, tiny.NewNode(4)),
-			valid: false,
-		},
-		{
-			name:  "zero replication factor",
-			cfg:   optimisticConfig(1000, 0, tiny.NewNode(4)),
-			valid: false,
-		},
-		{
 			name: "individual certainty of one",
-			cfg: func() *OptimisticConfig[tiny.Key, tiny.Node] {
-				cfg := validOptimisticConfig()
+			cfg: func() *OptimisticConfig {
+				cfg := DefaultOptimisticConfig()
 				cfg.IndividualCertainty = 1
 				return cfg
 			}(),
@@ -68,8 +43,8 @@ func TestOptimisticConfigValidate(t *testing.T) {
 		},
 		{
 			name: "individual certainty of zero",
-			cfg: func() *OptimisticConfig[tiny.Key, tiny.Node] {
-				cfg := validOptimisticConfig()
+			cfg: func() *OptimisticConfig {
+				cfg := DefaultOptimisticConfig()
 				cfg.IndividualCertainty = 0
 				return cfg
 			}(),
@@ -77,8 +52,8 @@ func TestOptimisticConfigValidate(t *testing.T) {
 		},
 		{
 			name: "set strictness of one",
-			cfg: func() *OptimisticConfig[tiny.Key, tiny.Node] {
-				cfg := validOptimisticConfig()
+			cfg: func() *OptimisticConfig {
+				cfg := DefaultOptimisticConfig()
 				cfg.SetStrictness = 1
 				return cfg
 			}(),
@@ -86,8 +61,8 @@ func TestOptimisticConfigValidate(t *testing.T) {
 		},
 		{
 			name: "set strictness of zero",
-			cfg: func() *OptimisticConfig[tiny.Key, tiny.Node] {
-				cfg := validOptimisticConfig()
+			cfg: func() *OptimisticConfig {
+				cfg := DefaultOptimisticConfig()
 				cfg.SetStrictness = 0
 				return cfg
 			}(),
@@ -112,8 +87,8 @@ func TestOptimisticConfigValidate(t *testing.T) {
 func TestOptimisticThresholds(t *testing.T) {
 	const networkSize = 1000
 
-	cfg := optimisticConfig(networkSize, 20)
-	individual, set, err := cfg.thresholds()
+	cfg := DefaultOptimisticConfig()
+	individual, set, err := cfg.thresholds(networkSize)
 	require.NoError(t, err)
 
 	require.InDelta(t, 14.525261, individual*networkSize, 0.00001)
@@ -129,36 +104,21 @@ func TestOptimisticThresholds(t *testing.T) {
 // TestOptimisticThresholdsFallWithNetworkSize checks that a larger network narrows both
 // thresholds, since the nodes closest to a key are closer the more nodes there are.
 func TestOptimisticThresholdsFallWithNetworkSize(t *testing.T) {
-	smallIndividual, smallSet, err := optimisticConfig(100, 20).thresholds()
+	smallIndividual, smallSet, err := DefaultOptimisticConfig().thresholds(100)
 	require.NoError(t, err)
 
-	largeIndividual, largeSet, err := optimisticConfig(10000, 20).thresholds()
+	largeIndividual, largeSet, err := DefaultOptimisticConfig().thresholds(10000)
 	require.NoError(t, err)
 
 	require.Less(t, largeIndividual, smallIndividual)
 	require.Less(t, largeSet, smallSet)
 }
 
-// validOptimisticConfig returns a configuration that passes validation, so a test can break a
-// single field.
-func validOptimisticConfig() *OptimisticConfig[tiny.Key, tiny.Node] {
-	return optimisticConfig(1000, 20, tiny.NewNode(4))
-}
-
-// optimisticConfig returns a configuration holding the default certainties for the given network
-// size, replication factor and seeds.
-func optimisticConfig(networkSize, replicationFactor int, seeds ...tiny.Node) *OptimisticConfig[tiny.Key, tiny.Node] {
-	cfg := DefaultOptimisticConfig[tiny.Key, tiny.Node]()
-	cfg.NetworkSize = networkSize
-	cfg.ReplicationFactor = replicationFactor
-	cfg.Seeds = seeds
-	return cfg
-}
-
-// newOptimisticTest creates an Optimistic state machine for the query id "test" with the given
-// configuration, running its walk in a pool that contacts one node at a time so that the
+// newOptimisticTest creates an Optimistic state machine for the query id "test" that walks from
+// seeds towards a target in a network of networkSize nodes, storing the record with
+// replicationFactor of them. Its walk runs in a pool that contacts one node at a time so that the
 // interleaving of the walk and the stores is visible.
-func newOptimisticTest(t *testing.T, cfg *OptimisticConfig[tiny.Key, tiny.Node]) *Optimistic[tiny.Key, tiny.Node, tiny.Message] {
+func newOptimisticTest(t *testing.T, networkSize, replicationFactor int, seeds ...tiny.Node) *Optimistic[tiny.Key, tiny.Node, tiny.Message] {
 	t.Helper()
 
 	qcfg := query.DefaultPoolConfig()
@@ -167,8 +127,11 @@ func newOptimisticTest(t *testing.T, cfg *OptimisticConfig[tiny.Key, tiny.Node])
 	qp, err := query.NewPool[tiny.Key, tiny.Node, tiny.Message](tiny.NewNode(0), qcfg)
 	require.NoError(t, err)
 
+	cfg := DefaultOptimisticConfig()
+	cfg.ReplicationFactor = replicationFactor
+
 	msg := tiny.Message{Content: "store this"}
-	sm, err := NewOptimistic(testQueryID, qp, msg, cfg, coordt.NoopTracer())
+	sm, err := NewOptimistic(testQueryID, qp, msg, seeds, networkSize, cfg, coordt.NoopTracer())
 	require.NoError(t, err)
 
 	return sm
@@ -188,7 +151,7 @@ func TestOptimisticStoresBeforeTheWalkEnds(t *testing.T) {
 	far := tiny.NewNode(40)
 	near := tiny.NewNode(2)
 
-	sm := newOptimisticTest(t, optimisticConfig(64, 2, far))
+	sm := newOptimisticTest(t, 64, 2, far)
 
 	// the walk begins with the seed, which is too far away to store with
 	state := sm.Advance(ctx, now, &EventBroadcastStart[tiny.Key, tiny.Node]{
@@ -229,7 +192,7 @@ func TestOptimisticDoesNotStoreOutsideTheIndividualThreshold(t *testing.T) {
 	seed := tiny.NewNode(100)
 	outside := tiny.NewNode(40)
 
-	sm := newOptimisticTest(t, optimisticConfig(64, 2, seed))
+	sm := newOptimisticTest(t, 64, 2, seed)
 
 	state := sm.Advance(ctx, now, &EventBroadcastStart[tiny.Key, tiny.Node]{
 		Target: target,
@@ -263,7 +226,7 @@ func TestOptimisticReportsWhenTheWalkIsDue(t *testing.T) {
 	target := tiny.Key(0)
 	seed := tiny.NewNode(100)
 
-	sm := newOptimisticTest(t, optimisticConfig(64, 2, seed))
+	sm := newOptimisticTest(t, 64, 2, seed)
 
 	state := sm.Advance(ctx, now, &EventBroadcastStart[tiny.Key, tiny.Node]{
 		Target: target,
@@ -293,7 +256,7 @@ func TestOptimisticAbandonsTheWalkOnTheSetThreshold(t *testing.T) {
 	a := tiny.NewNode(4)
 	b := tiny.NewNode(8)
 
-	sm := newOptimisticTest(t, optimisticConfig(64, 2, seed))
+	sm := newOptimisticTest(t, 64, 2, seed)
 
 	state := sm.Advance(ctx, now, &EventBroadcastStart[tiny.Key, tiny.Node]{
 		Target: target,
@@ -343,7 +306,7 @@ func TestOptimisticWalksOnWhileTooFewNodesAreKnown(t *testing.T) {
 	seed := tiny.NewNode(40)
 	a := tiny.NewNode(4)
 
-	sm := newOptimisticTest(t, optimisticConfig(64, 4, seed))
+	sm := newOptimisticTest(t, 64, 4, seed)
 
 	state := sm.Advance(ctx, now, &EventBroadcastStart[tiny.Key, tiny.Node]{
 		Target: target,
@@ -370,7 +333,7 @@ func TestOptimisticStopAbandonsOutstandingWork(t *testing.T) {
 	seed := tiny.NewNode(40)
 	near := tiny.NewNode(2)
 
-	sm := newOptimisticTest(t, optimisticConfig(64, 2, seed))
+	sm := newOptimisticTest(t, 64, 2, seed)
 
 	state := sm.Advance(ctx, now, &EventBroadcastStart[tiny.Key, tiny.Node]{
 		Target: target,
@@ -408,7 +371,7 @@ func TestOptimisticStopWhileWalkingFinishes(t *testing.T) {
 
 	seed := tiny.NewNode(100)
 
-	sm := newOptimisticTest(t, optimisticConfig(64, 2, seed))
+	sm := newOptimisticTest(t, 64, 2, seed)
 
 	state := sm.Advance(ctx, now, &EventBroadcastStart[tiny.Key, tiny.Node]{
 		Target: tiny.Key(0),

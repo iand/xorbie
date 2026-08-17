@@ -17,15 +17,7 @@ import (
 )
 
 // OptimisticConfig specifies the configuration for the [Optimistic] state machine.
-type OptimisticConfig[K kad.Key[K], N kad.NodeID[K]] struct {
-	// Seeds holds the nodes the walk starts from. Whatever starts the broadcast is expected to
-	// fill it with the closest nodes it knows of.
-	Seeds []N
-
-	// NetworkSize is the estimated number of nodes in the network, from which both distance
-	// thresholds are derived.
-	NetworkSize int
-
+type OptimisticConfig struct {
 	// ReplicationFactor is the number of nodes the record is meant to be stored with.
 	ReplicationFactor int
 
@@ -41,32 +33,9 @@ type OptimisticConfig[K kad.Key[K], N kad.NodeID[K]] struct {
 	SetStrictness float64
 }
 
-func (c *OptimisticConfig[K, N]) broadcastConfig() {}
-
 // Validate checks the configuration options and returns an error if any have
 // invalid values.
-func (c *OptimisticConfig[K, N]) Validate() error {
-	if c == nil {
-		return &coordt.ConfigurationError{
-			Component: "OptimisticConfig",
-			Err:       fmt.Errorf("config must not be nil"),
-		}
-	}
-
-	if len(c.Seeds) == 0 {
-		return &coordt.ConfigurationError{
-			Component: "OptimisticConfig",
-			Err:       fmt.Errorf("at least one seed must be supplied"),
-		}
-	}
-
-	if c.NetworkSize < 1 {
-		return &coordt.ConfigurationError{
-			Component: "OptimisticConfig",
-			Err:       fmt.Errorf("network size must be greater than zero"),
-		}
-	}
-
+func (c *OptimisticConfig) Validate() error {
 	if c.ReplicationFactor < 1 {
 		return &coordt.ConfigurationError{
 			Component: "OptimisticConfig",
@@ -88,18 +57,11 @@ func (c *OptimisticConfig[K, N]) Validate() error {
 		}
 	}
 
-	if _, _, err := c.thresholds(); err != nil {
-		return &coordt.ConfigurationError{
-			Component: "OptimisticConfig",
-			Err:       err,
-		}
-	}
-
 	return nil
 }
 
-// thresholds returns the individual and set distance thresholds the configuration implies, each
-// as a fraction of the width of the keyspace.
+// thresholds returns the individual and set distance thresholds for a network of networkSize
+// nodes, each as a fraction of the width of the keyspace.
 //
 // The distance from a key to the i-th closest of n nodes spread uniformly over the keyspace is
 // Beta(i, n-i+1) distributed, which for a large network approaches Gamma(i) scaled by 1/n. The
@@ -107,9 +69,9 @@ func (c *OptimisticConfig[K, N]) Validate() error {
 // may be assumed to hold the rank being asked about. The individual threshold asks about rank
 // ReplicationFactor. The set threshold asks about rank ReplicationFactor/2+1, which sits just
 // beyond the mean rank of the closest set and is the rank the algorithm was published with.
-func (c *OptimisticConfig[K, N]) thresholds() (individual float64, set float64, err error) {
+func (c *OptimisticConfig) thresholds(networkSize int) (individual float64, set float64, err error) {
 	k := float64(c.ReplicationFactor)
-	n := float64(c.NetworkSize)
+	n := float64(networkSize)
 
 	individual = mathext.GammaIncRegInv(k, 1-c.IndividualCertainty) / n
 	set = mathext.GammaIncRegInv(k/2+1, 1-c.SetStrictness) / n
@@ -123,8 +85,8 @@ func (c *OptimisticConfig[K, N]) thresholds() (individual float64, set float64, 
 
 // DefaultOptimisticConfig returns the default configuration options for the
 // [Optimistic] state machine.
-func DefaultOptimisticConfig[K kad.Key[K], N kad.NodeID[K]]() *OptimisticConfig[K, N] {
-	return &OptimisticConfig[K, N]{
+func DefaultOptimisticConfig() *OptimisticConfig {
+	return &OptimisticConfig{
 		ReplicationFactor:   20,  // MAGIC
 		IndividualCertainty: 0.9, // MAGIC
 		SetStrictness:       0.1, // MAGIC
@@ -162,7 +124,7 @@ type Optimistic[K kad.Key[K], N kad.NodeID[K], M coordt.Message[K, N]] struct {
 	queryID coordt.QueryID
 
 	// cfg is the configuration supplied to the Optimistic
-	cfg *OptimisticConfig[K, N]
+	cfg *OptimisticConfig
 
 	// queryPool is the pool in which the walk is run. It belongs to the broadcast pool that
 	// created this state machine and is shared with its siblings, so advancing it may produce
@@ -171,6 +133,9 @@ type Optimistic[K kad.Key[K], N kad.NodeID[K], M coordt.Message[K, N]] struct {
 
 	// msg is the message sent to each node to store the record
 	msg M
+
+	// seeds holds the nodes the walk starts from
+	seeds []N
 
 	// target is the key the record is stored under, set when the operation starts
 	target K
@@ -231,19 +196,26 @@ type foundNode[N any] struct {
 }
 
 // NewOptimistic creates a state machine that broadcasts msg to nodes close to the target it is
-// started with, running its walk in pool and reporting progress under the query id qid. It
-// returns an error if cfg is not valid, since the distance thresholds are derived from it.
-func NewOptimistic[K kad.Key[K], N kad.NodeID[K], M coordt.Message[K, N]](qid coordt.QueryID, pool *query.Pool[K, N, M], msg M, cfg *OptimisticConfig[K, N], tracer trace.Tracer) (*Optimistic[K, N, M], error) {
+// started with, walking from seeds in pool and reporting progress under the query id qid.
+//
+// networkSize is the estimated number of nodes in the network, from which both distance
+// thresholds are derived, and must be greater than zero. A nil cfg uses
+// [DefaultOptimisticConfig], and a non-nil one is validated.
+func NewOptimistic[K kad.Key[K], N kad.NodeID[K], M coordt.Message[K, N]](qid coordt.QueryID, pool *query.Pool[K, N, M], msg M, seeds []N, networkSize int, cfg *OptimisticConfig, tracer trace.Tracer) (*Optimistic[K, N, M], error) {
 	if cfg == nil {
-		return nil, &coordt.ConfigurationError{
-			Component: "Optimistic",
-			Err:       fmt.Errorf("config must not be nil"),
-		}
+		cfg = DefaultOptimisticConfig()
 	} else if err := cfg.Validate(); err != nil {
 		return nil, err
 	}
 
-	individual, set, err := cfg.thresholds()
+	if networkSize < 1 {
+		return nil, &coordt.ConfigurationError{
+			Component: "Optimistic",
+			Err:       fmt.Errorf("network size must be greater than zero"),
+		}
+	}
+
+	individual, set, err := cfg.thresholds(networkSize)
 	if err != nil {
 		return nil, err
 	}
@@ -254,6 +226,7 @@ func NewOptimistic[K kad.Key[K], N kad.NodeID[K], M coordt.Message[K, N]](qid co
 		queryPool:           pool,
 		tracer:              tracer,
 		msg:                 msg,
+		seeds:               seeds,
 		individualThreshold: individual,
 		setThreshold:        set,
 		seen:                map[string]struct{}{},
@@ -367,12 +340,12 @@ func (o *Optimistic[K, N, M]) handleEvent(ctx context.Context, ev BroadcastEvent
 		o.started = true
 		o.walking = true
 		o.target = ev.Target
-		o.discover(o.cfg.Seeds)
+		o.discover(o.seeds)
 
 		return &query.EventPoolAddFindCloserQuery[K, N]{
 			QueryID: o.queryID,
 			Target:  ev.Target,
-			Seed:    o.cfg.Seeds,
+			Seed:    o.seeds,
 		}
 	case *EventBroadcastStop:
 		o.stopped = true

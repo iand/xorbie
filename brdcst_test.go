@@ -43,11 +43,11 @@ func TestBroadcastBehaviourContactsAllSeeds(t *testing.T) {
 
 	msg := tiny.Message{Content: "store"}
 
-	b.Notify(ctx, &EventStartBroadcast[tiny.Key, tiny.Node, tiny.Message]{
+	b.Notify(ctx, &EventStartStaticBroadcast[tiny.Key, tiny.Node, tiny.Message]{
 		QueryID: "test",
 		Target:  msg.Target(),
 		Message: msg,
-		Config:  &brdcst.StaticConfig[tiny.Key, tiny.Node]{Nodes: seeds},
+		Nodes:   seeds,
 		Notify:  NewBroadcastWaiter[tiny.Key, tiny.Node, tiny.Message](0),
 	})
 
@@ -87,7 +87,7 @@ func TestBroadcastBehaviourReportsDroppedBroadcastStart(t *testing.T) {
 	b.Notify(ctx, &EventStopQuery{QueryID: "filler"})
 
 	waiter := NewBroadcastWaiter[tiny.Key, tiny.Node, tiny.Message](1)
-	b.Notify(ctx, &EventStartBroadcast[tiny.Key, tiny.Node, tiny.Message]{
+	b.Notify(ctx, &EventStartFollowUpBroadcast[tiny.Key, tiny.Node, tiny.Message]{
 		QueryID: "dropped",
 		Target:  nodes[1].NodeID.Key(),
 		Notify:  waiter,

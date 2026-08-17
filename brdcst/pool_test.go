@@ -33,17 +33,18 @@ func TestPoolConfigValidate(t *testing.T) {
 		cfg.Tracer = nil
 		require.Error(t, cfg.Validate())
 	})
-}
 
-func TestConfigInterfaceConformance(t *testing.T) {
-	configs := []Config{
-		&FollowUpConfig[tiny.Key, tiny.Node]{},
-		&OptimisticConfig[tiny.Key, tiny.Node]{},
-		&StaticConfig[tiny.Key, tiny.Node]{},
-	}
-	for _, c := range configs {
-		c.broadcastConfig() // drives test coverage
-	}
+	t.Run("optimistic config is not nil", func(t *testing.T) {
+		cfg := DefaultPoolConfig()
+		cfg.Optimistic = nil
+		require.Error(t, cfg.Validate())
+	})
+
+	t.Run("optimistic config is valid", func(t *testing.T) {
+		cfg := DefaultPoolConfig()
+		cfg.Optimistic.ReplicationFactor = 0
+		require.Error(t, cfg.Validate())
+	})
 }
 
 func TestPoolStopWhenNoQueries(t *testing.T) {
@@ -83,11 +84,11 @@ func TestPoolFollowUpLifecycle(t *testing.T) {
 
 	queryID := coordt.QueryID("test")
 
-	state := p.Advance(ctx, epoch, &EventPoolStartBroadcast[tiny.Key, tiny.Node, tiny.Message]{
+	state := p.Advance(ctx, epoch, &EventPoolStartFollowUp[tiny.Key, tiny.Node, tiny.Message]{
 		QueryID: queryID,
 		Target:  target,
 		Message: msg,
-		Config:  &FollowUpConfig[tiny.Key, tiny.Node]{Seeds: []tiny.Node{a}},
+		Seed:    []tiny.Node{a},
 	})
 
 	// the query should attempt to contact the node it was given
@@ -213,11 +214,11 @@ func TestPoolStopsNamedBroadcast(t *testing.T) {
 	msg := tiny.Message{Content: "store this"}
 	queryID := coordt.QueryID("test")
 
-	state := p.Advance(ctx, epoch, &EventPoolStartBroadcast[tiny.Key, tiny.Node, tiny.Message]{
+	state := p.Advance(ctx, epoch, &EventPoolStartStatic[tiny.Key, tiny.Node, tiny.Message]{
 		QueryID: queryID,
 		Target:  tiny.Key(0b00000001),
 		Message: msg,
-		Config:  &StaticConfig[tiny.Key, tiny.Node]{Nodes: []tiny.Node{tiny.NewNode(0b00000100)}},
+		Nodes:   []tiny.Node{tiny.NewNode(0b00000100)},
 	})
 	require.IsType(t, &StatePoolStoreRecord[tiny.Key, tiny.Node, tiny.Message]{}, state)
 
@@ -264,11 +265,11 @@ func TestPoolReportsNextDue(t *testing.T) {
 
 	queryID := coordt.QueryID("test")
 
-	state := p.Advance(ctx, epoch, &EventPoolStartBroadcast[tiny.Key, tiny.Node, tiny.Message]{
+	state := p.Advance(ctx, epoch, &EventPoolStartFollowUp[tiny.Key, tiny.Node, tiny.Message]{
 		QueryID: queryID,
 		Target:  target,
 		Message: msg,
-		Config:  &FollowUpConfig[tiny.Key, tiny.Node]{Seeds: []tiny.Node{a}},
+		Seed:    []tiny.Node{a},
 	})
 	require.IsType(t, &StatePoolFindCloser[tiny.Key, tiny.Node]{}, state)
 
@@ -312,11 +313,11 @@ func TestPoolAdvancesEveryBroadcast(t *testing.T) {
 
 	// a static broadcast takes its seed nodes as work to do, with no query phase, so both
 	// broadcasts can be driven to the point of waiting without involving the query pool
-	state := p.Advance(ctx, epoch, &EventPoolStartBroadcast[tiny.Key, tiny.Node, tiny.Message]{
+	state := p.Advance(ctx, epoch, &EventPoolStartStatic[tiny.Key, tiny.Node, tiny.Message]{
 		QueryID: first,
 		Target:  target,
 		Message: msg,
-		Config:  &StaticConfig[tiny.Key, tiny.Node]{Nodes: []tiny.Node{tiny.NewNode(0b00000100), tiny.NewNode(0b00000101)}},
+		Nodes:   []tiny.Node{tiny.NewNode(0b00000100), tiny.NewNode(0b00000101)},
 	})
 	srState, ok := state.(*StatePoolStoreRecord[tiny.Key, tiny.Node, tiny.Message])
 	require.True(t, ok, "state is %T", state)
@@ -330,11 +331,11 @@ func TestPoolAdvancesEveryBroadcast(t *testing.T) {
 	require.Equal(t, first, srState.QueryID)
 
 	// the second broadcast starts and contacts one of its two nodes, keeping the other to do
-	state = p.Advance(ctx, epoch, &EventPoolStartBroadcast[tiny.Key, tiny.Node, tiny.Message]{
+	state = p.Advance(ctx, epoch, &EventPoolStartStatic[tiny.Key, tiny.Node, tiny.Message]{
 		QueryID: second,
 		Target:  target,
 		Message: msg,
-		Config:  &StaticConfig[tiny.Key, tiny.Node]{Nodes: []tiny.Node{tiny.NewNode(0b00000110), tiny.NewNode(0b00000111)}},
+		Nodes:   []tiny.Node{tiny.NewNode(0b00000110), tiny.NewNode(0b00000111)},
 	})
 	srState, ok = state.(*StatePoolStoreRecord[tiny.Key, tiny.Node, tiny.Message])
 	require.True(t, ok, "state is %T", state)
@@ -375,20 +376,20 @@ func TestPoolReportsEarliestNextDueAcrossBroadcasts(t *testing.T) {
 	static := coordt.QueryID("static")
 
 	// a follow up broadcast in its query phase waits on a request that carries a deadline
-	state := p.Advance(ctx, epoch, &EventPoolStartBroadcast[tiny.Key, tiny.Node, tiny.Message]{
+	state := p.Advance(ctx, epoch, &EventPoolStartFollowUp[tiny.Key, tiny.Node, tiny.Message]{
 		QueryID: followUp,
 		Target:  target,
 		Message: msg,
-		Config:  &FollowUpConfig[tiny.Key, tiny.Node]{Seeds: []tiny.Node{tiny.NewNode(0b00000100)}},
+		Seed:    []tiny.Node{tiny.NewNode(0b00000100)},
 	})
 	require.IsType(t, &StatePoolFindCloser[tiny.Key, tiny.Node]{}, state)
 
 	// a static broadcast waits on store record requests, which carry no deadline
-	state = p.Advance(ctx, epoch, &EventPoolStartBroadcast[tiny.Key, tiny.Node, tiny.Message]{
+	state = p.Advance(ctx, epoch, &EventPoolStartStatic[tiny.Key, tiny.Node, tiny.Message]{
 		QueryID: static,
 		Target:  target,
 		Message: msg,
-		Config:  &StaticConfig[tiny.Key, tiny.Node]{Nodes: []tiny.Node{tiny.NewNode(0b00000110), tiny.NewNode(0b00000111)}},
+		Nodes:   []tiny.Node{tiny.NewNode(0b00000110), tiny.NewNode(0b00000111)},
 	})
 	srState, ok := state.(*StatePoolStoreRecord[tiny.Key, tiny.Node, tiny.Message])
 	require.True(t, ok, "state is %T", state)
@@ -416,7 +417,9 @@ func TestPoolEventInterfaceConformance(t *testing.T) {
 	events := []PoolEvent{
 		&EventPoolStopBroadcast{},
 		&EventPoolPoll{},
-		&EventPoolStartBroadcast[tiny.Key, tiny.Node, tiny.Message]{},
+		&EventPoolStartFollowUp[tiny.Key, tiny.Node, tiny.Message]{},
+		&EventPoolStartStatic[tiny.Key, tiny.Node, tiny.Message]{},
+		&EventPoolStartOptimistic[tiny.Key, tiny.Node, tiny.Message]{},
 		&EventPoolGetCloserNodesSuccess[tiny.Key, tiny.Node]{},
 		&EventPoolGetCloserNodesFailure[tiny.Key, tiny.Node]{},
 		&EventPoolStoreRecordSuccess[tiny.Key, tiny.Node, tiny.Message]{},

@@ -13,24 +13,6 @@ import (
 	"github.com/iand/xorbie/query"
 )
 
-func TestFollowUpConfigValidate(t *testing.T) {
-	t.Run("default has no seeds", func(t *testing.T) {
-		cfg := DefaultFollowUpConfig[tiny.Key, tiny.Node]()
-		require.Error(t, cfg.Validate())
-	})
-
-	t.Run("valid with a seed", func(t *testing.T) {
-		cfg := DefaultFollowUpConfig[tiny.Key, tiny.Node]()
-		cfg.Seeds = []tiny.Node{tiny.NewNode(4)}
-		require.NoError(t, cfg.Validate())
-	})
-
-	t.Run("nil", func(t *testing.T) {
-		var cfg *FollowUpConfig[tiny.Key, tiny.Node]
-		require.Error(t, cfg.Validate())
-	})
-}
-
 // newFollowUpTest creates a FollowUp state machine for the query id "test", running its query
 // in a pool built from qcfg and starting from seeds. A nil qcfg uses the default query pool
 // configuration.
@@ -42,11 +24,8 @@ func newFollowUpTest(t *testing.T, qcfg *query.PoolConfig, seeds ...tiny.Node) *
 	qp, err := query.NewPool[tiny.Key, tiny.Node, tiny.Message](tiny.NewNode(0), qcfg)
 	require.NoError(t, err)
 
-	cfg := DefaultFollowUpConfig[tiny.Key, tiny.Node]()
-	cfg.Seeds = seeds
-
 	msg := tiny.Message{Content: "store this"}
-	return NewFollowUp(testQueryID, qp, msg, cfg, coordt.NoopTracer())
+	return NewFollowUp(testQueryID, qp, msg, seeds, coordt.NoopTracer())
 }
 
 // TestFollowUpQueriesBeforeStoring checks that a follow up broadcast finds the nodes closest

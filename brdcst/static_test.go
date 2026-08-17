@@ -11,35 +11,15 @@ import (
 	"github.com/iand/xorbie/internal/tiny"
 )
 
-func TestStaticConfigValidate(t *testing.T) {
-	t.Run("default has no nodes", func(t *testing.T) {
-		cfg := DefaultStaticConfig[tiny.Key, tiny.Node]()
-		require.Error(t, cfg.Validate())
-	})
-
-	t.Run("valid with a node", func(t *testing.T) {
-		cfg := DefaultStaticConfig[tiny.Key, tiny.Node]()
-		cfg.Nodes = []tiny.Node{tiny.NewNode(4)}
-		require.NoError(t, cfg.Validate())
-	})
-
-	t.Run("nil", func(t *testing.T) {
-		var cfg *StaticConfig[tiny.Key, tiny.Node]
-		require.Error(t, cfg.Validate())
-	})
-}
-
 // testQueryID is the id the broadcast state machines under test report progress under.
 const testQueryID = coordt.QueryID("test")
 
 // newStaticTest creates a Static state machine for the query id "test" that stores with nodes.
 func newStaticTest(t *testing.T, nodes ...tiny.Node) *Static[tiny.Key, tiny.Node, tiny.Message] {
 	t.Helper()
-	cfg := DefaultStaticConfig[tiny.Key, tiny.Node]()
-	cfg.Nodes = nodes
 
 	msg := tiny.Message{Content: "store this"}
-	return NewStatic(testQueryID, msg, cfg, coordt.NoopTracer())
+	return NewStatic(testQueryID, msg, nodes, coordt.NoopTracer())
 }
 
 // TestStaticContactsEverySeedOnce checks that a static broadcast asks for its record to be

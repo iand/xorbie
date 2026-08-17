@@ -117,6 +117,40 @@ type EventStopQuery struct {
 func (*EventStopQuery) behaviourEvent() {}
 func (*EventStopQuery) queryCommand()   {}
 
+// EventStartFollowUpBroadcast starts a broadcast that finds the nodes closest to the target key
+// before storing the record with any of them.
+type EventStartFollowUpBroadcast[K kad.Key[K], N kad.NodeID[K], M coordt.Message[K, N]] struct {
+	QueryID           coordt.QueryID
+	Target            K
+	Message           M
+	KnownClosestNodes []N
+	Notify            QueryMonitor[K, N, M, *EventBroadcastFinished[K, N]]
+}
+
+// EventStartStaticBroadcast starts a broadcast that stores the record with a fixed set of nodes.
+type EventStartStaticBroadcast[K kad.Key[K], N kad.NodeID[K], M coordt.Message[K, N]] struct {
+	QueryID coordt.QueryID
+	Target  K
+	Message M
+	Nodes   []N
+	Notify  QueryMonitor[K, N, M, *EventBroadcastFinished[K, N]]
+}
+
+// EventStartOptimisticBroadcast starts a broadcast that stores the record with nodes as the walk
+// towards the target key finds them.
+type EventStartOptimisticBroadcast[K kad.Key[K], N kad.NodeID[K], M coordt.Message[K, N]] struct {
+	QueryID           coordt.QueryID
+	Target            K
+	Message           M
+	KnownClosestNodes []N
+	NetworkSize       int
+	Notify            QueryMonitor[K, N, M, *EventBroadcastFinished[K, N]]
+}
+
+func (*EventStartFollowUpBroadcast[K, N, M]) behaviourEvent()   {}
+func (*EventStartStaticBroadcast[K, N, M]) behaviourEvent()     {}
+func (*EventStartOptimisticBroadcast[K, N, M]) behaviourEvent() {}
+
 // EventAddNode notifies the routing behaviour of a potential new node.
 type EventAddNode[K kad.Key[K], N kad.NodeID[K]] struct {
 	NodeID N
@@ -201,6 +235,25 @@ type EventQueryFinished[K kad.Key[K], N kad.NodeID[K]] struct {
 
 func (*EventQueryFinished[K, N]) behaviourEvent()     {}
 func (*EventQueryFinished[K, N]) terminalQueryEvent() {}
+
+// EventBroadcastFinished is emitted by the coordinator when a broadcasting
+// a record to the network has finished, either through running to completion or
+// by being canceled.
+type EventBroadcastFinished[K kad.Key[K], N kad.NodeID[K]] struct {
+	QueryID   coordt.QueryID
+	Contacted []N
+	Errors    map[string]struct {
+		Node N
+		Err  error
+	}
+
+	// Err records why the broadcast ended when it ended without being attempted, and is
+	// nil otherwise. A broadcast that ran records per node outcomes in Errors instead.
+	Err error
+}
+
+func (*EventBroadcastFinished[K, N]) behaviourEvent()     {}
+func (*EventBroadcastFinished[K, N]) terminalQueryEvent() {}
 
 // EventRoutingUpdated is emitted by the coordinator when a new node has been verified and added to the routing table.
 type EventRoutingUpdated[K kad.Key[K], N kad.NodeID[K]] struct {

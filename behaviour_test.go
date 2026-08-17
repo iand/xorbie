@@ -224,11 +224,11 @@ func buildWaitingBroadcastBehaviour(t *testing.T, ctx context.Context) Behaviour
 	b := newTestBroadcastBehaviour(t, nodes[0].NodeID)
 
 	msg := tiny.Message{Content: "store"}
-	b.Notify(ctx, &EventStartBroadcast[tiny.Key, tiny.Node, tiny.Message]{
-		QueryID: "test",
-		Target:  msg.Target(),
-		Message: msg,
-		Config:  &brdcst.FollowUpConfig[tiny.Key, tiny.Node]{Seeds: []tiny.Node{nodes[1].NodeID}},
+	b.Notify(ctx, &EventStartFollowUpBroadcast[tiny.Key, tiny.Node, tiny.Message]{
+		QueryID:           "test",
+		Target:            msg.Target(),
+		Message:           msg,
+		KnownClosestNodes: []tiny.Node{nodes[1].NodeID},
 	})
 
 	return b

@@ -247,6 +247,9 @@ func NewCoordinator[K kad.Key[K], N kad.NodeID[K], M coordt.Message[K, N]](
 
 	bpCfg := brdcst.DefaultPoolConfig()
 	bpCfg.Tracer = tele.Tracer
+	bpCfg.Optimistic.ReplicationFactor = cfg.Brdcst.ReplicationFactor
+	bpCfg.Optimistic.IndividualCertainty = cfg.Brdcst.OptimisticIndividualCertainty
+	bpCfg.Optimistic.SetStrictness = cfg.Brdcst.OptimisticSetStrictness
 
 	b, err := brdcst.NewPool[K, N, M](self, bpCfg)
 	if err != nil {
@@ -473,10 +476,11 @@ func (c *Coordinator[K, N, M]) QueryMessage(ctx context.Context, msg M, fn coord
 	return closest, stats, err
 }
 
-// BroadcastRecord stores msg with the nodes closest to its key, contacting none of them until
-// the lookup for that key has settled on them. It blocks until the broadcast finishes.
-func (c *Coordinator[K, N, M]) BroadcastRecord(ctx context.Context, msg M) error {
-	ctx, span := c.tele.Tracer.Start(ctx, "Coordinator.BroadcastRecord")
+// BroadcastFollowUp stores msg with the nodes closest to its key, waiting until the lookup for
+// that key has settled before following up by sending the message. It returns when the broadcast
+// has finished.
+func (c *Coordinator[K, N, M]) BroadcastFollowUp(ctx context.Context, msg M) error {
+	ctx, span := c.tele.Tracer.Start(ctx, "Coordinator.BroadcastFollowUp")
 	defer span.End()
 	if any(msg) == nil {
 		return fmt.Errorf("no message supplied for broadcast")
@@ -491,11 +495,25 @@ func (c *Coordinator[K, N, M]) BroadcastRecord(ctx context.Context, msg M) error
 		return err
 	}
 
-	return c.broadcast(ctx, msg, &brdcst.FollowUpConfig[K, N]{Seeds: seeds})
+	if len(seeds) == 0 {
+		return fmt.Errorf("no nodes known to store the record with")
+	}
+
+	waiter := NewBroadcastWaiter[K, N, M](0) // zero capacity since awaitBroadcast ignores progress events
+
+	c.brdcstBehaviour.Notify(ctx, &EventStartFollowUpBroadcast[K, N, M]{
+		QueryID:           c.newOperationID(),
+		Target:            msg.Target(),
+		Message:           msg,
+		KnownClosestNodes: seeds,
+		Notify:            waiter,
+	})
+
+	return c.awaitBroadcast(ctx, waiter)
 }
 
-// BroadcastStatic stores msg with the given nodes and no others, running no lookup. It blocks
-// until the broadcast finishes.
+// BroadcastStatic stores msg with the given nodes only. It returns when the broadcast has
+// finished.
 func (c *Coordinator[K, N, M]) BroadcastStatic(ctx context.Context, msg M, nodes []N) error {
 	ctx, span := c.tele.Tracer.Start(ctx, "Coordinator.BroadcastStatic")
 	defer span.End()
@@ -503,15 +521,33 @@ func (c *Coordinator[K, N, M]) BroadcastStatic(ctx context.Context, msg M, nodes
 		return fmt.Errorf("no message supplied for broadcast")
 	}
 
-	return c.broadcast(ctx, msg, &brdcst.StaticConfig[K, N]{Nodes: nodes})
+	if len(nodes) == 0 {
+		return fmt.Errorf("no nodes supplied for broadcast")
+	}
+
+	ctx, cancel := context.WithCancel(ctx)
+	defer cancel()
+
+	waiter := NewBroadcastWaiter[K, N, M](0) // zero capacity since awaitBroadcast ignores progress events
+
+	c.brdcstBehaviour.Notify(ctx, &EventStartStaticBroadcast[K, N, M]{
+		QueryID: c.newOperationID(),
+		Target:  msg.Target(),
+		Message: msg,
+		Nodes:   nodes,
+		Notify:  waiter,
+	})
+
+	return c.awaitBroadcast(ctx, waiter)
 }
 
 // BroadcastOptimistic stores msg with nodes close to its key, storing with each node as the lookup
-// finds it rather than waiting for the lookup to settle. It blocks until the broadcast finishes.
+// finds it rather than waiting for the lookup to settle. It returns when the broadcast has
+// finished.
 //
 // The strategy derives its distance thresholds from the size of the network, which is not known
 // until enough lookups have completed. Until then this stores nothing and returns
-// [netsize.ErrNotEnoughData], leaving the caller to fall back to [Coordinator.BroadcastRecord].
+// [netsize.ErrNotEnoughData], leaving the caller to fall back to [Coordinator.BroadcastFollowUp].
 func (c *Coordinator[K, N, M]) BroadcastOptimistic(ctx context.Context, msg M) error {
 	ctx, span := c.tele.Tracer.Start(ctx, "Coordinator.BroadcastOptimistic")
 	defer span.End()
@@ -532,41 +568,29 @@ func (c *Coordinator[K, N, M]) BroadcastOptimistic(ctx context.Context, msg M) e
 		return err
 	}
 
-	return c.broadcast(ctx, msg, &brdcst.OptimisticConfig[K, N]{
-		Seeds:               seeds,
-		NetworkSize:         est.Size,
-		ReplicationFactor:   c.cfg.Brdcst.ReplicationFactor,
-		IndividualCertainty: c.cfg.Brdcst.OptimisticIndividualCertainty,
-		SetStrictness:       c.cfg.Brdcst.OptimisticSetStrictness,
+	if len(seeds) == 0 {
+		return fmt.Errorf("no nodes known to store the record with")
+	}
+
+	waiter := NewBroadcastWaiter[K, N, M](0) // zero capacity since awaitBroadcast ignores progress events
+
+	c.brdcstBehaviour.Notify(ctx, &EventStartOptimisticBroadcast[K, N, M]{
+		QueryID:           c.newOperationID(),
+		Target:            msg.Target(),
+		Message:           msg,
+		KnownClosestNodes: seeds,
+		NetworkSize:       est.Size,
+		Notify:            waiter,
 	})
+
+	return c.awaitBroadcast(ctx, waiter)
 }
 
-func (c *Coordinator[K, N, M]) broadcast(ctx context.Context, msg M, cfg brdcst.Config) error {
-	ctx, span := c.tele.Tracer.Start(ctx, "Coordinator.broadcast")
+// awaitBroadcast blocks until the broadcast the waiter belongs to has finished and reports
+// whether it stored the record with any node at all.
+func (c *Coordinator[K, N, M]) awaitBroadcast(ctx context.Context, waiter *BroadcastWaiter[K, N, M]) error {
+	ctx, span := c.tele.Tracer.Start(ctx, "Coordinator.awaitBroadcast")
 	defer span.End()
-
-	if cfg == nil {
-		return fmt.Errorf("no configuration supplied for broadcast")
-	} else if err := cfg.Validate(); err != nil {
-		return err
-	}
-
-	ctx, cancel := context.WithCancel(ctx)
-	defer cancel()
-
-	waiter := NewBroadcastWaiter[K, N, M](0) // zero capacity since waitForBroadcast ignores progress events
-	queryID := c.newOperationID()
-
-	cmd := &EventStartBroadcast[K, N, M]{
-		QueryID: queryID,
-		Target:  msg.Target(),
-		Message: msg,
-		Notify:  waiter,
-		Config:  cfg,
-	}
-
-	// queue the start of the query
-	c.brdcstBehaviour.Notify(ctx, cmd)
 
 	contacted, _, err := c.waitForBroadcast(ctx, waiter)
 	if err != nil {

@@ -43,9 +43,6 @@ type FollowUp[K kad.Key[K], N kad.NodeID[K], M coordt.Message[K, N]] struct {
 	// queryID is the unique id of this broadcast operation
 	queryID coordt.QueryID
 
-	// cfg is the configuration supplied to the FollowUp
-	cfg *FollowUpConfig[K, N]
-
 	// queryPool is the pool in which the find closer nodes query is run. It belongs to the
 	// broadcast pool that created this state machine and is shared with its siblings, so
 	// advancing it may produce work for another broadcast.
@@ -53,6 +50,9 @@ type FollowUp[K kad.Key[K], N kad.NodeID[K], M coordt.Message[K, N]] struct {
 
 	// msg is the message sent to each node to store the record
 	msg M
+
+	// seeds holds the nodes the find closer nodes query starts from
+	seeds []N
 
 	// closest holds the nodes the find closer nodes query settled on, and is filled when
 	// that query finishes
@@ -78,50 +78,15 @@ type FollowUp[K kad.Key[K], N kad.NodeID[K], M coordt.Message[K, N]] struct {
 	tracer trace.Tracer
 }
 
-// FollowUpConfig specifies the configuration for the [FollowUp] state machine.
-type FollowUpConfig[K kad.Key[K], N kad.NodeID[K]] struct {
-	// Seeds holds the nodes the query starts from. Whatever starts the broadcast is expected to
-	// fill it with the closest nodes it knows of.
-	Seeds []N
-}
-
-func (c *FollowUpConfig[K, N]) broadcastConfig() {}
-
-// Validate checks the configuration options and returns an error if any have
-// invalid values.
-func (c *FollowUpConfig[K, N]) Validate() error {
-	if c == nil {
-		return &coordt.ConfigurationError{
-			Component: "FollowUpConfig",
-			Err:       fmt.Errorf("config must not be nil"),
-		}
-	}
-
-	if len(c.Seeds) == 0 {
-		return &coordt.ConfigurationError{
-			Component: "FollowUpConfig",
-			Err:       fmt.Errorf("at least one seed must be supplied"),
-		}
-	}
-
-	return nil
-}
-
-// DefaultFollowUpConfig returns the default configuration options for the
-// [FollowUp] state machine.
-func DefaultFollowUpConfig[K kad.Key[K], N kad.NodeID[K]]() *FollowUpConfig[K, N] {
-	return &FollowUpConfig[K, N]{}
-}
-
 // NewFollowUp creates a state machine that broadcasts msg to the nodes closest to the target
-// it is started with, running its query in pool and reporting progress under the query id qid.
-func NewFollowUp[K kad.Key[K], N kad.NodeID[K], M coordt.Message[K, N]](qid coordt.QueryID, pool *query.Pool[K, N, M], msg M, cfg *FollowUpConfig[K, N], tracer trace.Tracer) *FollowUp[K, N, M] {
+// it is started with, querying from seeds in pool and reporting progress under the query id qid.
+func NewFollowUp[K kad.Key[K], N kad.NodeID[K], M coordt.Message[K, N]](qid coordt.QueryID, pool *query.Pool[K, N, M], msg M, seeds []N, tracer trace.Tracer) *FollowUp[K, N, M] {
 	return &FollowUp[K, N, M]{
 		queryID:   qid,
-		cfg:       cfg,
 		queryPool: pool,
 		tracer:    tracer,
 		msg:       msg,
+		seeds:     seeds,
 		todo:      map[string]N{},
 		waiting:   map[string]N{},
 		success:   map[string]N{},
@@ -214,7 +179,7 @@ func (f *FollowUp[K, N, M]) handleEvent(ctx context.Context, ev BroadcastEvent) 
 		return &query.EventPoolAddFindCloserQuery[K, N]{
 			QueryID: f.queryID,
 			Target:  ev.Target,
-			Seed:    f.cfg.Seeds,
+			Seed:    f.seeds,
 		}
 	case *EventBroadcastStop:
 		if f.isQueryDone() {

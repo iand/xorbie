@@ -18,9 +18,9 @@ type Broadcast = coordt.StateMachine[BroadcastEvent, BroadcastState]
 
 // The Pool state machine manages every running broadcast operation.
 //
-// A broadcast is started by the [EventPoolStartBroadcast] event, which names the strategy to
-// use, and runs until it reports that it has finished or is stopped by the
-// [EventPoolStopBroadcast] event. The pool imposes no limit on how many run at once.
+// A broadcast is started by one of the start events, one per strategy, and runs until it reports
+// that it has finished or is stopped by the [EventPoolStopBroadcast] event. The pool imposes no
+// limit on how many run at once.
 //
 // Advancing the pool advances each of its broadcasts in turn and returns the first
 // instruction any of them produces, so a single advance emits work for one broadcast only.
@@ -47,20 +47,12 @@ type Pool[K kad.Key[K], N kad.NodeID[K], M coordt.Message[K, N]] struct {
 	nextDue time.Time
 }
 
-// Config is an interface that all broadcast configurations must implement. A record can be
-// broadcast in more than one way, and the concrete type of the [Config] carried by an
-// [EventPoolStartBroadcast] event selects which strategy the [Pool] creates to run it.
-type Config interface {
-	broadcastConfig()
-
-	// Validate checks the configuration options and returns an error if any have invalid
-	// values.
-	Validate() error
-}
-
 // PoolConfig specifies the configuration for a broadcast [Pool].
 type PoolConfig struct {
 	pCfg *query.PoolConfig
+
+	// Optimistic is the configuration given to each broadcast run by the optimistic strategy.
+	Optimistic *OptimisticConfig
 
 	// Tracer is the tracer that should be used to trace execution.
 	Tracer trace.Tracer
@@ -71,6 +63,12 @@ type PoolConfig struct {
 func (cfg *PoolConfig) Validate() error {
 	if cfg.pCfg == nil {
 		return fmt.Errorf("query pool config must not be nil")
+	}
+
+	if cfg.Optimistic == nil {
+		return fmt.Errorf("optimistic config must not be nil")
+	} else if err := cfg.Optimistic.Validate(); err != nil {
+		return fmt.Errorf("optimistic config: %w", err)
 	}
 
 	if cfg.Tracer == nil {
@@ -84,8 +82,9 @@ func (cfg *PoolConfig) Validate() error {
 // Options may be overridden before passing to NewPool
 func DefaultPoolConfig() *PoolConfig {
 	return &PoolConfig{
-		pCfg:   query.DefaultPoolConfig(),
-		Tracer: coordt.NoopTracer(),
+		pCfg:       query.DefaultPoolConfig(),
+		Optimistic: DefaultOptimisticConfig(),
+		Tracer:     coordt.NoopTracer(),
 	}
 }
 
@@ -181,22 +180,27 @@ func (p *Pool[K, N, M]) handleEvent(ctx context.Context, ev PoolEvent) (sm Broad
 	}()
 
 	switch ev := ev.(type) {
-	case *EventPoolStartBroadcast[K, N, M]:
-		// first initialize the state machine for the broadcast desired strategy
-		switch cfg := ev.Config.(type) {
-		case *FollowUpConfig[K, N]:
-			p.bcs[ev.QueryID] = NewFollowUp(ev.QueryID, p.qp, ev.Message, cfg, p.cfg.Tracer)
-		case *StaticConfig[K, N]:
-			p.bcs[ev.QueryID] = NewStatic(ev.QueryID, ev.Message, cfg, p.cfg.Tracer)
-		case *OptimisticConfig[K, N]:
-			o, err := NewOptimistic(ev.QueryID, p.qp, ev.Message, cfg, p.cfg.Tracer)
-			if err != nil {
-				return nil, nil
-			}
-			p.bcs[ev.QueryID] = o
+	case *EventPoolStartFollowUp[K, N, M]:
+		p.bcs[ev.QueryID] = NewFollowUp(ev.QueryID, p.qp, ev.Message, ev.Seed, p.cfg.Tracer)
+
+		return p.bcs[ev.QueryID], &EventBroadcastStart[K, N]{
+			Target: ev.Target,
 		}
 
-		// start the new state machine
+	case *EventPoolStartStatic[K, N, M]:
+		p.bcs[ev.QueryID] = NewStatic(ev.QueryID, ev.Message, ev.Nodes, p.cfg.Tracer)
+
+		return p.bcs[ev.QueryID], &EventBroadcastStart[K, N]{
+			Target: ev.Target,
+		}
+
+	case *EventPoolStartOptimistic[K, N, M]:
+		o, err := NewOptimistic(ev.QueryID, p.qp, ev.Message, ev.Seed, ev.NetworkSize, p.cfg.Optimistic, p.cfg.Tracer)
+		if err != nil {
+			return nil, nil
+		}
+		p.bcs[ev.QueryID] = o
+
 		return p.bcs[ev.QueryID], &EventBroadcastStart[K, N]{
 			Target: ev.Target,
 		}
@@ -342,13 +346,32 @@ type PoolEvent interface {
 // that it can perform housekeeping work such as time out queries.
 type EventPoolPoll struct{}
 
-// EventPoolStartBroadcast starts a new broadcast operation in the [Pool]. It is the entry
-// point to the pool.
-type EventPoolStartBroadcast[K kad.Key[K], N kad.NodeID[K], M coordt.Message[K, N]] struct {
+// EventPoolStartFollowUp starts a broadcast that runs the [FollowUp] strategy, finding the nodes
+// closest to the target key before storing the record with any of them.
+type EventPoolStartFollowUp[K kad.Key[K], N kad.NodeID[K], M coordt.Message[K, N]] struct {
 	QueryID coordt.QueryID // the unique id for this operation
 	Target  K              // the key the record is stored under
 	Message M              // the message that carries the record to the nodes it is stored with
-	Config  Config         // the configuration for this operation, which selects the broadcast strategy
+	Seed    []N            // the closest nodes known so far, from where the query starts
+}
+
+// EventPoolStartStatic starts a broadcast that runs the [Static] strategy, storing the record
+// with a fixed set of nodes.
+type EventPoolStartStatic[K kad.Key[K], N kad.NodeID[K], M coordt.Message[K, N]] struct {
+	QueryID coordt.QueryID // the unique id for this operation
+	Target  K              // the key the record is stored under
+	Message M              // the message that carries the record to the nodes it is stored with
+	Nodes   []N            // the nodes the record is stored with
+}
+
+// EventPoolStartOptimistic starts a broadcast that runs the [Optimistic] strategy, storing the
+// record with nodes as the walk towards the target key finds them.
+type EventPoolStartOptimistic[K kad.Key[K], N kad.NodeID[K], M coordt.Message[K, N]] struct {
+	QueryID     coordt.QueryID // the unique id for this operation
+	Target      K              // the key the record is stored under
+	Message     M              // the message that carries the record to the nodes it is stored with
+	Seed        []N            // the closest nodes known so far, from where the walk starts
+	NetworkSize int            // the estimated number of nodes in the network
 }
 
 // EventPoolStopBroadcast notifies broadcast [Pool] to stop a broadcast
@@ -400,7 +423,9 @@ type EventPoolStoreRecordFailure[K kad.Key[K], N kad.NodeID[K], M coordt.Message
 // assigned to the [PoolEvent] interface.
 func (*EventPoolStopBroadcast) poolEvent()               {}
 func (*EventPoolPoll) poolEvent()                        {}
-func (*EventPoolStartBroadcast[K, N, M]) poolEvent()     {}
+func (*EventPoolStartFollowUp[K, N, M]) poolEvent()      {}
+func (*EventPoolStartStatic[K, N, M]) poolEvent()        {}
+func (*EventPoolStartOptimistic[K, N, M]) poolEvent()    {}
 func (*EventPoolGetCloserNodesSuccess[K, N]) poolEvent() {}
 func (*EventPoolGetCloserNodesFailure[K, N]) poolEvent() {}
 func (*EventPoolStoreRecordSuccess[K, N, M]) poolEvent() {}
