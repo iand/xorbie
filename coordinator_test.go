@@ -115,6 +115,49 @@ func TestQueryReturnsClosestNodes(t *testing.T) {
 	})
 }
 
+// TestQueryClosestWithNilQueryFunc checks that a caller wanting only the closest nodes may omit
+// the query function.
+func TestQueryClosestWithNilQueryFunc(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		ctx := kadtest.CtxBubble(t)
+
+		_, nodes, err := linearTopology(4)
+		require.NoError(t, err)
+
+		self := nodes[0].NodeID
+		c, err := NewCoordinator(self, nodes[0].Router, nodes[0].RoutingTable, tiny.NodeWithCpl, DefaultCoordinatorConfig[tiny.Key, tiny.Node, tiny.Message]())
+		require.NoError(t, err)
+		t.Cleanup(func() { require.NoError(t, c.Close()) })
+
+		closest, stats, err := c.QueryClosest(ctx, nodes[3].NodeID.Key(), nil, 20)
+		require.NoError(t, err)
+		require.True(t, stats.Exhausted)
+		require.NotEmpty(t, closest)
+	})
+}
+
+// TestQueryMessageWithNilQueryFunc checks that a caller wanting only the closest nodes may omit
+// the query function.
+func TestQueryMessageWithNilQueryFunc(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		ctx := kadtest.CtxBubble(t)
+
+		_, nodes, err := linearTopology(4)
+		require.NoError(t, err)
+
+		self := nodes[0].NodeID
+		c, err := NewCoordinator(self, nodes[0].Router, nodes[0].RoutingTable, tiny.NodeWithCpl, DefaultCoordinatorConfig[tiny.Key, tiny.Node, tiny.Message]())
+		require.NoError(t, err)
+		t.Cleanup(func() { require.NoError(t, c.Close()) })
+
+		msg := tiny.Message{Content: "find this", TargetKey: nodes[3].NodeID.Key()}
+		closest, stats, err := c.QueryMessage(ctx, msg, nil, 20)
+		require.NoError(t, err)
+		require.True(t, stats.Exhausted)
+		require.NotEmpty(t, closest)
+	})
+}
+
 func TestRoutingUpdatedEventEmittedForCloserNodes(t *testing.T) {
 	synctest.Test(t, func(t *testing.T) {
 		ctx := kadtest.CtxBubble(t)

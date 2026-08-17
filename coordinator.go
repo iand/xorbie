@@ -404,7 +404,8 @@ func (c *Coordinator[K, N, M]) GetClosestNodes(ctx context.Context, k K, n int) 
 // The supplied [QueryFunc] is called after each successful request to a node with the ID of the node,
 // the response received from the find nodes request made to the node and the current query stats. The query
 // terminates when [QueryFunc] returns an error or when the query has visited the configured minimum number
-// of closest nodes.
+// of closest nodes. fn may be nil, in which case the query terminates only when it has visited the
+// configured minimum number of closest nodes.
 //
 // numResults specifies the minimum number of nodes to successfully contact before considering iteration complete.
 // The query is considered to be exhausted when it has received responses from at least this number of nodes
@@ -417,6 +418,10 @@ func (c *Coordinator[K, N, M]) QueryClosest(ctx context.Context, target K, fn co
 
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
+
+	if fn == nil {
+		fn = func(context.Context, N, M, coordt.QueryStats) error { return nil }
+	}
 
 	if numResults < 1 {
 		numResults = c.cfg.ReplicationFactor
@@ -450,7 +455,8 @@ func (c *Coordinator[K, N, M]) QueryClosest(ctx context.Context, target K, fn co
 // The supplied [QueryFunc] is called after each successful request to a node with the ID of the node,
 // the response received from the find nodes request made to the node and the current query stats. The query
 // terminates when [QueryFunc] returns an error or when the query has visited the configured minimum number
-// of closest nodes.
+// of closest nodes. fn may be nil, in which case the query terminates only when it has visited the
+// configured minimum number of closest nodes.
 //
 // numResults specifies the minimum number of nodes to successfully contact before considering iteration complete.
 // The query is considered to be exhausted when it has received responses from at least this number of nodes
@@ -461,6 +467,10 @@ func (c *Coordinator[K, N, M]) QueryMessage(ctx context.Context, msg M, fn coord
 	defer span.End()
 	if any(msg) == nil {
 		return nil, coordt.QueryStats{}, fmt.Errorf("no message supplied for query")
+	}
+
+	if fn == nil {
+		fn = func(context.Context, N, M, coordt.QueryStats) error { return nil }
 	}
 	c.cfg.Logger.Debug("starting query with message", logAttrKey(msg.Target()))
 
