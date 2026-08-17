@@ -6,6 +6,7 @@ import (
 	"github.com/ipfs/go-libdht/kad"
 
 	"github.com/iand/xorbie/coordt"
+	"github.com/iand/xorbie/query"
 )
 
 // BroadcastState must be implemented by all states that a [Broadcast] state machine can
@@ -53,6 +54,7 @@ type StateBroadcastFinished[K kad.Key[K], N kad.NodeID[K]] struct {
 		Node N     // a node from the Contacted slice
 		Err  error // the error that happened when contacting that Node
 	}
+	QueryStats query.QueryStats // the stats of the lookup that found the nodes, zero if none was run
 }
 
 // StateBroadcastIdle indicates that a [Broadcast] state machine has nothing to do. It is

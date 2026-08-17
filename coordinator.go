@@ -497,12 +497,12 @@ func (c *Coordinator[K, N, M]) QueryMessage(ctx context.Context, msg M, fn coord
 
 // BroadcastFollowUp stores msg with the nodes closest to its key, waiting until the lookup for
 // that key has settled before following up by sending the message. It returns when the broadcast
-// has finished.
-func (c *Coordinator[K, N, M]) BroadcastFollowUp(ctx context.Context, msg M) error {
+// has finished, with the counts of what it did.
+func (c *Coordinator[K, N, M]) BroadcastFollowUp(ctx context.Context, msg M) (coordt.BroadcastStats, error) {
 	ctx, span := c.tele.Tracer.Start(ctx, "Coordinator.BroadcastFollowUp")
 	defer span.End()
 	if any(msg) == nil {
-		return fmt.Errorf("no message supplied for broadcast")
+		return coordt.BroadcastStats{}, fmt.Errorf("no message supplied for broadcast")
 	}
 	c.cfg.Logger.Debug("starting broadcast with message", logAttrKey(msg.Target()))
 
@@ -511,14 +511,15 @@ func (c *Coordinator[K, N, M]) BroadcastFollowUp(ctx context.Context, msg M) err
 
 	seeds, err := c.GetClosestNodes(ctx, msg.Target(), c.cfg.ReplicationFactor)
 	if err != nil {
-		return err
+		return coordt.BroadcastStats{}, err
 	}
 
 	if len(seeds) == 0 {
-		return fmt.Errorf("no nodes known to store the record with")
+		return coordt.BroadcastStats{}, fmt.Errorf("no nodes known to store the record with")
 	}
 
 	waiter := NewBroadcastWaiter[K, N, M](0) // zero capacity since awaitBroadcast ignores progress events
+	start := time.Now()
 
 	c.brdcstBehaviour.Notify(ctx, &EventStartFollowUpBroadcast[K, N, M]{
 		QueryID:           c.newOperationID(),
@@ -528,26 +529,27 @@ func (c *Coordinator[K, N, M]) BroadcastFollowUp(ctx context.Context, msg M) err
 		Notify:            waiter,
 	})
 
-	return c.awaitBroadcast(ctx, waiter)
+	return c.awaitBroadcast(ctx, waiter, start)
 }
 
 // BroadcastStatic stores msg with the given nodes only. It returns when the broadcast has
-// finished.
-func (c *Coordinator[K, N, M]) BroadcastStatic(ctx context.Context, msg M, nodes []N) error {
+// finished, with the counts of what it did.
+func (c *Coordinator[K, N, M]) BroadcastStatic(ctx context.Context, msg M, nodes []N) (coordt.BroadcastStats, error) {
 	ctx, span := c.tele.Tracer.Start(ctx, "Coordinator.BroadcastStatic")
 	defer span.End()
 	if any(msg) == nil {
-		return fmt.Errorf("no message supplied for broadcast")
+		return coordt.BroadcastStats{}, fmt.Errorf("no message supplied for broadcast")
 	}
 
 	if len(nodes) == 0 {
-		return fmt.Errorf("no nodes supplied for broadcast")
+		return coordt.BroadcastStats{}, fmt.Errorf("no nodes supplied for broadcast")
 	}
 
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
 
 	waiter := NewBroadcastWaiter[K, N, M](0) // zero capacity since awaitBroadcast ignores progress events
+	start := time.Now()
 
 	c.brdcstBehaviour.Notify(ctx, &EventStartStaticBroadcast[K, N, M]{
 		QueryID: c.newOperationID(),
@@ -557,21 +559,21 @@ func (c *Coordinator[K, N, M]) BroadcastStatic(ctx context.Context, msg M, nodes
 		Notify:  waiter,
 	})
 
-	return c.awaitBroadcast(ctx, waiter)
+	return c.awaitBroadcast(ctx, waiter, start)
 }
 
 // BroadcastOptimistic stores msg with nodes close to its key, storing with each node as the lookup
 // finds it rather than waiting for the lookup to settle. It returns when the broadcast has
-// finished.
+// finished, with the counts of what it did.
 //
 // The strategy derives its distance thresholds from the size of the network, which is not known
 // until enough lookups have completed. Until then this stores nothing and returns
 // [netsize.ErrNotEnoughData], leaving the caller to fall back to [Coordinator.BroadcastFollowUp].
-func (c *Coordinator[K, N, M]) BroadcastOptimistic(ctx context.Context, msg M) error {
+func (c *Coordinator[K, N, M]) BroadcastOptimistic(ctx context.Context, msg M) (coordt.BroadcastStats, error) {
 	ctx, span := c.tele.Tracer.Start(ctx, "Coordinator.BroadcastOptimistic")
 	defer span.End()
 	if any(msg) == nil {
-		return fmt.Errorf("no message supplied for broadcast")
+		return coordt.BroadcastStats{}, fmt.Errorf("no message supplied for broadcast")
 	}
 
 	ctx, cancel := context.WithCancel(ctx)
@@ -579,19 +581,20 @@ func (c *Coordinator[K, N, M]) BroadcastOptimistic(ctx context.Context, msg M) e
 
 	est, err := c.NetworkSize()
 	if err != nil {
-		return fmt.Errorf("network size estimate: %w", err)
+		return coordt.BroadcastStats{}, fmt.Errorf("network size estimate: %w", err)
 	}
 
 	seeds, err := c.GetClosestNodes(ctx, msg.Target(), c.cfg.ReplicationFactor)
 	if err != nil {
-		return err
+		return coordt.BroadcastStats{}, err
 	}
 
 	if len(seeds) == 0 {
-		return fmt.Errorf("no nodes known to store the record with")
+		return coordt.BroadcastStats{}, fmt.Errorf("no nodes known to store the record with")
 	}
 
 	waiter := NewBroadcastWaiter[K, N, M](0) // zero capacity since awaitBroadcast ignores progress events
+	start := time.Now()
 
 	c.brdcstBehaviour.Notify(ctx, &EventStartOptimisticBroadcast[K, N, M]{
 		QueryID:           c.newOperationID(),
@@ -602,27 +605,39 @@ func (c *Coordinator[K, N, M]) BroadcastOptimistic(ctx context.Context, msg M) e
 		Notify:            waiter,
 	})
 
-	return c.awaitBroadcast(ctx, waiter)
+	return c.awaitBroadcast(ctx, waiter, start)
 }
 
-// awaitBroadcast blocks until the broadcast the waiter belongs to has finished and reports
-// whether it stored the record with any node at all.
-func (c *Coordinator[K, N, M]) awaitBroadcast(ctx context.Context, waiter *BroadcastWaiter[K, N, M]) error {
+// awaitBroadcast blocks until the broadcast the waiter belongs to has finished and reports what it
+// did, measured from start. Whether the counts it reports amount to a success is left to the
+// caller, since the number of nodes a record must reach differs by network.
+func (c *Coordinator[K, N, M]) awaitBroadcast(ctx context.Context, waiter *BroadcastWaiter[K, N, M], start time.Time) (coordt.BroadcastStats, error) {
 	ctx, span := c.tele.Tracer.Start(ctx, "Coordinator.awaitBroadcast")
 	defer span.End()
 
-	contacted, _, err := c.waitForBroadcast(ctx, waiter)
+	ev, err := c.waitForBroadcast(ctx, waiter)
 	if err != nil {
-		return err
+		return coordt.BroadcastStats{Start: start, End: time.Now()}, err
 	}
 
-	if len(contacted) == 0 {
-		return fmt.Errorf("no nodes contacted")
+	// The per node errors are reported no further, so they are logged here rather than
+	// discarded with the event.
+	for _, e := range ev.Errors {
+		c.cfg.Logger.Debug("node did not store record", "node", e.Node.String(), "err", e.Err)
 	}
 
-	// TODO: define threshold below which we consider the provide to have failed
+	stats := coordt.BroadcastStats{
+		Start:         start,
+		End:           time.Now(),
+		QueryRequests: ev.QueryStats.Requests,
+		QuerySuccess:  ev.QueryStats.Success,
+		QueryFailure:  ev.QueryStats.Failure,
+		StoreRequests: len(ev.Contacted),
+		StoreFailure:  len(ev.Errors),
+	}
+	stats.StoreSuccess = stats.StoreRequests - stats.StoreFailure
 
-	return nil
+	return stats, nil
 }
 
 func (c *Coordinator[K, N, M]) waitForQuery(ctx context.Context, queryID coordt.QueryID, waiter *QueryWaiter[K, N, M], fn coordt.QueryFunc[K, N, M]) ([]N, coordt.QueryStats, error) {
@@ -705,23 +720,21 @@ func (c *Coordinator[K, N, M]) waitForQuery(ctx context.Context, queryID coordt.
 	}
 }
 
-func (c *Coordinator[K, N, M]) waitForBroadcast(ctx context.Context, waiter *BroadcastWaiter[K, N, M]) ([]N, map[string]struct {
-	Node N
-	Err  error
-}, error,
-) {
+// waitForBroadcast blocks until the broadcast the waiter belongs to reports that it has finished
+// and returns the event it finished with.
+func (c *Coordinator[K, N, M]) waitForBroadcast(ctx context.Context, waiter *BroadcastWaiter[K, N, M]) (*EventBroadcastFinished[K, N], error) {
 	for {
 		select {
 		case <-ctx.Done():
-			return nil, nil, ctx.Err()
+			return nil, ctx.Err()
 		case wev, more := <-waiter.Finished():
 			if !more {
-				return nil, nil, ctx.Err()
+				return nil, ctx.Err()
 			}
 			if wev.Event.Err != nil {
-				return nil, nil, wev.Event.Err
+				return nil, wev.Event.Err
 			}
-			return wev.Event.Contacted, wev.Event.Errors, nil
+			return wev.Event, nil
 		}
 	}
 }

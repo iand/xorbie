@@ -159,6 +159,9 @@ type Optimistic[K kad.Key[K], N kad.NodeID[K], M coordt.Message[K, N]] struct {
 	// during the current call to Advance. It is recalculated on each call.
 	nextDue time.Time
 
+	// queryStats holds the stats reported by the walk when it ended
+	queryStats query.QueryStats
+
 	// walking records whether the walk is still running
 	walking bool
 
@@ -291,9 +294,10 @@ func (o *Optimistic[K, N, M]) Advance(ctx context.Context, now time.Time, ev Bro
 		}
 
 		return &StateBroadcastFinished[K, N]{
-			QueryID:   o.queryID,
-			Contacted: o.contacted,
-			Errors:    o.failed,
+			QueryID:    o.queryID,
+			Contacted:  o.contacted,
+			Errors:     o.failed,
+			QueryStats: o.queryStats,
 		}
 	}
 
@@ -316,9 +320,10 @@ func (o *Optimistic[K, N, M]) Advance(ctx context.Context, now time.Time, ev Bro
 
 	if o.started {
 		return &StateBroadcastFinished[K, N]{
-			QueryID:   o.queryID,
-			Contacted: o.contacted,
-			Errors:    o.failed,
+			QueryID:    o.queryID,
+			Contacted:  o.contacted,
+			Errors:     o.failed,
+			QueryStats: o.queryStats,
 		}
 	}
 
@@ -411,9 +416,11 @@ func (o *Optimistic[K, N, M]) advancePool(ctx context.Context, now time.Time, ev
 	case *query.StatePoolWaitingWithCapacity:
 		o.nextDue = st.NextDue
 	case *query.StatePoolQueryFinished[K, N]:
+		o.queryStats = st.Stats
 		o.discover(st.ClosestNodes)
 		o.endWalk()
 	case *query.StatePoolQueryTimeout:
+		o.queryStats = st.Stats
 		o.endWalk()
 	case *query.StatePoolIdle:
 		// nothing to do

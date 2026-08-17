@@ -516,7 +516,7 @@ func TestCoordinatorBroadcastOptimisticNeedsAnEstimate(t *testing.T) {
 		require.ErrorIs(t, err, netsize.ErrNotEnoughData)
 
 		msg := tiny.Message{Content: "store this", TargetKey: nodes[3].NodeID.Key()}
-		err = c.BroadcastOptimistic(ctx, msg)
+		_, err = c.BroadcastOptimistic(ctx, msg)
 		require.ErrorIs(t, err, netsize.ErrNotEnoughData)
 	})
 }
@@ -552,7 +552,65 @@ func TestCoordinatorBroadcastOptimisticOnceAnEstimateExists(t *testing.T) {
 		require.NoError(t, err)
 
 		msg := tiny.Message{Content: "store this", TargetKey: nodes[3].NodeID.Key()}
-		err = c.BroadcastOptimistic(ctx, msg)
+		stats, err := c.BroadcastOptimistic(ctx, msg)
 		require.NoError(t, err)
+
+		require.Positive(t, stats.StoreRequests)
+		require.Equal(t, stats.StoreRequests, stats.StoreSuccess+stats.StoreFailure)
+		require.False(t, stats.Start.IsZero())
+		require.False(t, stats.End.Before(stats.Start))
+	})
+}
+
+// TestCoordinatorBroadcastFollowUpReportsBothPhases checks that a follow up broadcast reports the
+// lookup that found the nodes as well as the stores that followed it.
+func TestCoordinatorBroadcastFollowUpReportsBothPhases(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		ctx := kadtest.CtxBubble(t)
+
+		_, nodes, err := linearTopology(4)
+		require.NoError(t, err)
+
+		ccfg := DefaultCoordinatorConfig[tiny.Key, tiny.Node, tiny.Message]()
+		ccfg.ReplicationFactor = 2
+
+		c, err := NewCoordinator(nodes[0].NodeID, nodes[0].Router, nodes[0].RoutingTable, tiny.NodeWithCpl, ccfg)
+		require.NoError(t, err)
+		t.Cleanup(func() { require.NoError(t, c.Close()) })
+
+		msg := tiny.Message{Content: "store this", TargetKey: nodes[3].NodeID.Key()}
+		stats, err := c.BroadcastFollowUp(ctx, msg)
+		require.NoError(t, err)
+
+		// the lookup runs to completion before any store, so both phases have counts
+		require.Positive(t, stats.QueryRequests)
+		require.Equal(t, stats.QueryRequests, stats.QuerySuccess+stats.QueryFailure)
+		require.Positive(t, stats.StoreRequests)
+		require.Equal(t, stats.StoreRequests, stats.StoreSuccess+stats.StoreFailure)
+	})
+}
+
+// TestCoordinatorBroadcastStaticReportsNoLookup checks that a static broadcast, which runs no
+// lookup, reports zero for the query counts rather than leaving them to be guessed at.
+func TestCoordinatorBroadcastStaticReportsNoLookup(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		ctx := kadtest.CtxBubble(t)
+
+		_, nodes, err := linearTopology(4)
+		require.NoError(t, err)
+
+		c, err := NewCoordinator(nodes[0].NodeID, nodes[0].Router, nodes[0].RoutingTable, tiny.NodeWithCpl, nil)
+		require.NoError(t, err)
+		t.Cleanup(func() { require.NoError(t, c.Close()) })
+
+		msg := tiny.Message{Content: "store this", TargetKey: nodes[3].NodeID.Key()}
+		stats, err := c.BroadcastStatic(ctx, msg, []tiny.Node{nodes[1].NodeID, nodes[2].NodeID})
+		require.NoError(t, err)
+
+		require.Zero(t, stats.QueryRequests)
+		require.Zero(t, stats.QuerySuccess)
+		require.Zero(t, stats.QueryFailure)
+		require.Equal(t, 2, stats.StoreRequests)
+		require.Equal(t, 2, stats.StoreSuccess)
 	})
 }

@@ -272,9 +272,10 @@ func (p *Pool[K, N, M]) advanceBroadcast(ctx context.Context, now time.Time, sm 
 	case *StateBroadcastFinished[K, N]:
 		delete(p.bcs, st.QueryID)
 		return &StatePoolBroadcastFinished[K, N]{
-			QueryID:   st.QueryID,
-			Contacted: st.Contacted,
-			Errors:    st.Errors,
+			QueryID:    st.QueryID,
+			Contacted:  st.Contacted,
+			Errors:     st.Errors,
+			QueryStats: st.QueryStats,
 		}, true
 	}
 
@@ -322,6 +323,7 @@ type StatePoolBroadcastFinished[K kad.Key[K], N kad.NodeID[K]] struct {
 		Node N     // a node from the Contacted slice
 		Err  error // the error that happened when contacting that Node
 	}
+	QueryStats query.QueryStats // the stats of the lookup that found the nodes, zero if none was run
 }
 
 // StatePoolIdle means that the broadcast [Pool] is not managing any broadcast

@@ -51,6 +51,22 @@ type QueryStats struct {
 	Exhausted bool      // Exhausted is true if the query ended after visiting every node it could.
 }
 
+// BroadcastStats holds the counts and timings of one broadcast operation. The Query counts cover
+// the lookup that finds the nodes to store the record with, and are zero for a broadcast that runs
+// no lookup. The Store counts cover the requests that carry the record.
+type BroadcastStats struct {
+	Start time.Time // Start is the time the broadcast began executing.
+	End   time.Time // End is the time the broadcast stopped executing.
+
+	QueryRequests int // QueryRequests is a count of the number of requests made by the lookup.
+	QuerySuccess  int // QuerySuccess is a count of the number of nodes the lookup successfully contacted.
+	QueryFailure  int // QueryFailure is a count of the number of nodes the lookup received an error response from.
+
+	StoreRequests int // StoreRequests is a count of the number of nodes asked to store the record.
+	StoreSuccess  int // StoreSuccess is a count of the number of nodes that stored the record.
+	StoreFailure  int // StoreFailure is a count of the number of nodes that did not store the record.
+}
+
 var (
 	// ErrSkipNode is used as a return value from a QueryFunc to indicate that the node is to be skipped.
 	ErrSkipNode = errors.New("skip node")

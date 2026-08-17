@@ -58,6 +58,9 @@ type FollowUp[K kad.Key[K], N kad.NodeID[K], M coordt.Message[K, N]] struct {
 	// that query finishes
 	closest []N
 
+	// queryStats holds the stats reported by the find closer nodes query when it ended
+	queryStats query.QueryStats
+
 	// todo holds the nodes that have yet to be asked to store the record, filled from closest
 	todo map[string]N
 
@@ -154,9 +157,10 @@ func (f *FollowUp[K, N, M]) Advance(ctx context.Context, now time.Time, ev Broad
 
 	if isStopEvent || (len(f.todo) == 0 && len(f.closest) != 0) {
 		return &StateBroadcastFinished[K, N]{
-			QueryID:   f.queryID,
-			Contacted: f.closest,
-			Errors:    f.failed,
+			QueryID:    f.queryID,
+			Contacted:  f.closest,
+			Errors:     f.failed,
+			QueryStats: f.queryStats,
 		}
 	}
 
@@ -249,6 +253,8 @@ func (f *FollowUp[K, N, M]) advancePool(ctx context.Context, now time.Time, ev q
 			NextDue: st.NextDue,
 		}, true
 	case *query.StatePoolQueryFinished[K, N]:
+		f.queryStats = st.Stats
+
 		if len(st.ClosestNodes) == 0 {
 			return &StateBroadcastFinished[K, N]{
 				QueryID:   f.queryID,
@@ -257,6 +263,7 @@ func (f *FollowUp[K, N, M]) advancePool(ctx context.Context, now time.Time, ev q
 					Node N
 					Err  error
 				}{},
+				QueryStats: f.queryStats,
 			}, true
 		}
 
@@ -267,6 +274,8 @@ func (f *FollowUp[K, N, M]) advancePool(ctx context.Context, now time.Time, ev q
 		}
 
 	case *query.StatePoolQueryTimeout:
+		f.queryStats = st.Stats
+
 		return &StateBroadcastFinished[K, N]{
 			QueryID:   f.queryID,
 			Contacted: make([]N, 0),
@@ -274,6 +283,7 @@ func (f *FollowUp[K, N, M]) advancePool(ctx context.Context, now time.Time, ev q
 				Node N
 				Err  error
 			}{},
+			QueryStats: f.queryStats,
 		}, true
 	case *query.StatePoolIdle:
 		// nothing to do

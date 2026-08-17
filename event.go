@@ -247,6 +247,10 @@ type EventBroadcastFinished[K kad.Key[K], N kad.NodeID[K]] struct {
 		Err  error
 	}
 
+	// QueryStats holds the stats of the lookup that found the nodes the record was stored
+	// with, and is zero for a broadcast that ran no lookup.
+	QueryStats query.QueryStats
+
 	// Err records why the broadcast ended when it ended without being attempted, and is
 	// nil otherwise. A broadcast that ran records per node outcomes in Errors instead.
 	Err error

@@ -481,9 +481,10 @@ func (b *PooledBroadcastBehaviour[K, N, M]) advancePool(ctx context.Context, now
 		waiter, ok := b.notifiers[st.QueryID]
 		if ok {
 			waiter.NotifyFinished(ctx, &EventBroadcastFinished[K, N]{
-				QueryID:   st.QueryID,
-				Contacted: st.Contacted,
-				Errors:    st.Errors,
+				QueryID:    st.QueryID,
+				Contacted:  st.Contacted,
+				Errors:     st.Errors,
+				QueryStats: st.QueryStats,
 			})
 			delete(b.notifiers, st.QueryID)
 		}
