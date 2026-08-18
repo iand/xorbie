@@ -364,11 +364,15 @@ func (p *QueryBehaviour[K, N, M]) perfomNextInbound(ctx context.Context) (Behavi
 		p.queueAddNodeEvents(ev.CloserNodes)
 		waiter, ok := p.notifiers[ev.QueryID]
 		if ok {
+			// The pool has not advanced on this response yet, so its stats do not count it. This
+			// notification is a successful response, so the copy on the event counts it.
+			stats, _ := p.pool.Stats(ev.QueryID)
+			stats.Success++
 			waiter.TryNotifyProgressed(ctx, &EventQueryProgressed[K, N, M]{
 				NodeID:  ev.To,
 				QueryID: ev.QueryID,
 				// CloserNodes: CloserNodeIDs(ev.CloserNodes),
-				// Stats:    stats,
+				Stats: stats,
 			})
 		}
 		cmd = &query.EventPoolNodeResponse[K, N]{
@@ -390,10 +394,15 @@ func (p *QueryBehaviour[K, N, M]) perfomNextInbound(ctx context.Context) (Behavi
 		p.queueAddNodeEvents(ev.CloserNodes)
 		waiter, ok := p.notifiers[ev.QueryID]
 		if ok {
+			// The pool has not advanced on this response yet, so its stats do not count it. This
+			// notification is a successful response, so the copy on the event counts it.
+			stats, _ := p.pool.Stats(ev.QueryID)
+			stats.Success++
 			waiter.TryNotifyProgressed(ctx, &EventQueryProgressed[K, N, M]{
 				NodeID:   ev.To,
 				QueryID:  ev.QueryID,
 				Response: ev.Response,
+				Stats:    stats,
 			})
 		}
 		cmd = &query.EventPoolNodeResponse[K, N]{

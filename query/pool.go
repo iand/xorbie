@@ -278,6 +278,16 @@ func (p *Pool[K, N, M]) removeQuery(queryID coordt.QueryID) {
 	delete(p.queryIndex, queryID)
 }
 
+// Stats returns the stats accumulated so far by the query with the given id. The bool result is
+// false if no query with that id is running in the pool.
+func (p *Pool[K, N, M]) Stats(queryID coordt.QueryID) (QueryStats, bool) {
+	qry, ok := p.queryIndex[queryID]
+	if !ok {
+		return QueryStats{}, false
+	}
+	return qry.stats, true
+}
+
 // addQuery adds a query to the pool, returning the new query id
 // TODO: remove target argument and use msg.Target
 func (p *Pool[K, N, M]) addQuery(ctx context.Context, queryID coordt.QueryID, target K, msg M, knownClosestNodes []N, numResults int) error {
