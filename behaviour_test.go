@@ -8,10 +8,10 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	"github.com/iand/xorbie/brdcst"
 	"github.com/iand/xorbie/coordt"
 	"github.com/iand/xorbie/internal/kadtest"
 	"github.com/iand/xorbie/internal/tiny"
+	"github.com/iand/xorbie/publish"
 	"github.com/iand/xorbie/query"
 	"github.com/iand/xorbie/routing"
 )
@@ -93,16 +93,16 @@ func newTestQueryBehaviour(t *testing.T, timeout, requestTimeout time.Duration, 
 	return b
 }
 
-// newTestBroadcastBehaviour returns a broadcast behaviour holding an empty pool.
-func newTestBroadcastBehaviour(t *testing.T, self tiny.Node) *PooledBroadcastBehaviour[tiny.Key, tiny.Node, tiny.Message] {
+// newTestPublishBehaviour returns a publish behaviour holding an empty pool.
+func newTestPublishBehaviour(t *testing.T, self tiny.Node) *PublishBehaviour[tiny.Key, tiny.Node, tiny.Message] {
 	t.Helper()
 
-	pool, err := brdcst.NewPool[tiny.Key, tiny.Node, tiny.Message](self, nil)
+	pool, err := publish.NewPool[tiny.Key, tiny.Node, tiny.Message](self, nil)
 	require.NoError(t, err)
 
-	bcfg := DefaultBroadcastConfig[tiny.Key, tiny.Node, tiny.Message]()
+	bcfg := DefaultPublishConfig[tiny.Key, tiny.Node, tiny.Message]()
 
-	b, err := NewPooledBroadcastBehaviour(pool, bcfg)
+	b, err := NewPublishBehaviour(pool, bcfg)
 	require.NoError(t, err)
 
 	return b
@@ -212,19 +212,19 @@ func buildWaitingExploreBehaviour(t *testing.T, ctx context.Context) Behaviour[B
 	return b
 }
 
-// buildWaitingBroadcastBehaviour returns a broadcast behaviour running a follow up
-// broadcast that has contacted a seed and is waiting for a response that never arrives.
-func buildWaitingBroadcastBehaviour(t *testing.T, ctx context.Context) Behaviour[BehaviourEvent, BehaviourEvent] {
+// buildWaitingPublishBehaviour returns a publish behaviour running a follow up
+// publish that has contacted a seed and is waiting for a response that never arrives.
+func buildWaitingPublishBehaviour(t *testing.T, ctx context.Context) Behaviour[BehaviourEvent, BehaviourEvent] {
 	nodes := testPeers(t, 2)
 
-	// the pool the broadcast borrows takes no configuration, so this case depends on its
+	// the pool the publish borrows takes no configuration, so this case depends on its
 	// default request timeout matching the deadline the other cases use
 	require.Equal(t, conformanceDeadline, query.DefaultPoolConfig().RequestTimeout)
 
-	b := newTestBroadcastBehaviour(t, nodes[0].NodeID)
+	b := newTestPublishBehaviour(t, nodes[0].NodeID)
 
 	msg := tiny.Message{Content: "store"}
-	b.Notify(ctx, &EventStartFollowUpBroadcast[tiny.Key, tiny.Node, tiny.Message]{
+	b.Notify(ctx, &EventStartFollowUpPublish[tiny.Key, tiny.Node, tiny.Message]{
 		QueryID:           "test",
 		Target:            msg.Target(),
 		Message:           msg,
@@ -274,8 +274,8 @@ func TestBehaviourSignalsReadyAtDeadline(t *testing.T) {
 			build: buildWaitingExploreBehaviour,
 		},
 		{
-			name:  "broadcast request timeout",
-			build: buildWaitingBroadcastBehaviour,
+			name:  "publish request timeout",
+			build: buildWaitingPublishBehaviour,
 		},
 	}
 
@@ -332,9 +332,9 @@ func TestBehaviourWithNoWorkArmsNoTimer(t *testing.T) {
 			},
 		},
 		{
-			name: "broadcast",
+			name: "publish",
 			build: func(t *testing.T) (Behaviour[BehaviourEvent, BehaviourEvent], *readyTimer) {
-				b := newTestBroadcastBehaviour(t, testPeers(t, 1)[0].NodeID)
+				b := newTestPublishBehaviour(t, testPeers(t, 1)[0].NodeID)
 				return b, b.readyTimer
 			},
 		},

@@ -1,4 +1,4 @@
-package brdcst
+package publish
 
 import (
 	"context"
@@ -12,46 +12,46 @@ import (
 	"github.com/iand/xorbie/query"
 )
 
-// Broadcast is the state machine interface that every broadcast strategy implements. A
+// Publish is the state machine interface that every publish strategy implements. A
 // strategy decides which nodes a record is stored with and in what order they are contacted.
-type Broadcast = coordt.StateMachine[BroadcastEvent, BroadcastState]
+type Publish = coordt.StateMachine[PublishEvent, PublishState]
 
-// The Pool state machine manages every running broadcast operation.
+// The Pool state machine manages every running publish operation.
 //
-// A broadcast is started by one of the start events, one per strategy, and runs until it reports
-// that it has finished or is stopped by the [EventPoolStopBroadcast] event. The pool imposes no
+// A publish is started by one of the start events, one per strategy, and runs until it reports
+// that it has finished or is stopped by the [EventPoolStopPublish] event. The pool imposes no
 // limit on how many run at once.
 //
-// Advancing the pool advances each of its broadcasts in turn and returns the first
-// instruction any of them produces, so a single advance emits work for one broadcast only.
-// A broadcast that is merely waiting produces no instruction and does not stop the walk. If
-// no broadcast has work the pool reports [StatePoolWaiting], carrying the earliest time any
-// of them could make progress, and if it holds no broadcasts at all it reports
+// Advancing the pool advances each of its publishes in turn and returns the first
+// instruction any of them produces, so a single advance emits work for one publish only.
+// A publish that is merely waiting produces no instruction and does not stop the walk. If
+// no publish has work the pool reports [StatePoolWaiting], carrying the earliest time any
+// of them could make progress, and if it holds no publishes at all it reports
 // [StatePoolIdle].
 //
 // The pool owns the query pool that strategies run their find closer nodes queries in, and
-// passes it to each broadcast it creates. That pool is separate from the one serving
+// passes it to each publish it creates. That pool is separate from the one serving
 // ordinary queries, so the two can be given different limits.
 type Pool[K kad.Key[K], N kad.NodeID[K], M coordt.Message[K, N]] struct {
-	// qp is the pool in which broadcasts run their find closer nodes queries
+	// qp is the pool in which publishes run their find closer nodes queries
 	qp *query.Pool[K, N, M]
 
-	// bcs holds every running broadcast operation, keyed by its query id
-	bcs map[coordt.QueryID]Broadcast
+	// bcs holds every running publish operation, keyed by its query id
+	bcs map[coordt.QueryID]Publish
 
 	// cfg is a copy of the optional configuration supplied to the Pool
 	cfg PoolConfig
 
-	// nextDue is the earliest time reported by a waiting broadcast during the current
+	// nextDue is the earliest time reported by a waiting publish during the current
 	// call to Advance. It is recalculated on each call.
 	nextDue time.Time
 }
 
-// PoolConfig specifies the configuration for a broadcast [Pool].
+// PoolConfig specifies the configuration for a publish [Pool].
 type PoolConfig struct {
 	pCfg *query.PoolConfig
 
-	// Optimistic is the configuration given to each broadcast run by the optimistic strategy.
+	// Optimistic is the configuration given to each publish run by the optimistic strategy.
 	Optimistic *OptimisticConfig
 
 	// Tracer is the tracer that should be used to trace execution.
@@ -88,7 +88,7 @@ func DefaultPoolConfig() *PoolConfig {
 	}
 }
 
-// NewPool creates a broadcast pool along with the query pool its broadcasts run their find
+// NewPool creates a publish pool along with the query pool its publishes run their find
 // closer nodes queries in. The default configuration is used if cfg is nil. The query pool
 // is created here rather than shared with the one serving ordinary queries so that the two
 // can be given different concurrency limits and neither has to coordinate with the other.
@@ -99,7 +99,7 @@ func NewPool[K kad.Key[K], N kad.NodeID[K], M coordt.Message[K, N]](self N, cfg 
 		return nil, fmt.Errorf("validate pool config: %w", err)
 	}
 
-	// The query pool traces through the same tracer as the broadcast pool that owns it.
+	// The query pool traces through the same tracer as the publish pool that owns it.
 	qpCfg := *cfg.pCfg
 	qpCfg.Tracer = cfg.Tracer
 
@@ -110,16 +110,16 @@ func NewPool[K kad.Key[K], N kad.NodeID[K], M coordt.Message[K, N]](self N, cfg 
 
 	return &Pool[K, N, M]{
 		qp:  qp,
-		bcs: map[coordt.QueryID]Broadcast{},
+		bcs: map[coordt.QueryID]Publish{},
 		cfg: *cfg,
 	}, nil
 }
 
-// Advance advances the state of the broadcast [Pool] by advancing its broadcasts.
+// Advance advances the state of the publish [Pool] by advancing its publishes.
 //
-// An event naming a broadcast is translated and delivered to that broadcast first, and the
+// An event naming a publish is translated and delivered to that publish first, and the
 // rest are then polled in turn until one of them produces an instruction to return. An event
-// that names no broadcast, such as [EventPoolPoll], goes straight to the walk.
+// that names no publish, such as [EventPoolPoll], goes straight to the walk.
 func (p *Pool[K, N, M]) Advance(ctx context.Context, now time.Time, ev PoolEvent) (out PoolState) {
 	ctx, span := p.cfg.Tracer.Start(ctx, "Pool.Advance", trace.WithAttributes(coordt.AttrInEvent(ev)))
 	defer func() {
@@ -127,12 +127,12 @@ func (p *Pool[K, N, M]) Advance(ctx context.Context, now time.Time, ev PoolEvent
 		span.End()
 	}()
 
-	// the earliest due time is accumulated across the broadcasts advanced by this call
+	// the earliest due time is accumulated across the publishes advanced by this call
 	p.nextDue = time.Time{}
 
 	sm, bev := p.handleEvent(ctx, ev)
 	if sm != nil && bev != nil {
-		if state, terminal := p.advanceBroadcast(ctx, now, sm, bev); terminal {
+		if state, terminal := p.advancePublish(ctx, now, sm, bev); terminal {
 			return state
 		}
 	}
@@ -141,24 +141,24 @@ func (p *Pool[K, N, M]) Advance(ctx context.Context, now time.Time, ev PoolEvent
 		return &StatePoolIdle{}
 	}
 
-	// advance the remaining broadcasts until one of them produces an instruction
+	// advance the remaining publishes until one of them produces an instruction
 	for _, bsm := range p.bcs {
 		if sm == bsm {
 			continue
 		}
 
-		state, terminal := p.advanceBroadcast(ctx, now, bsm, &EventBroadcastPoll{})
+		state, terminal := p.advancePublish(ctx, now, bsm, &EventPublishPoll{})
 		if terminal {
 			return state
 		}
 	}
 
-	// no broadcast produced an instruction, so the pool has nothing to do but wait
+	// no publish produced an instruction, so the pool has nothing to do but wait
 	return &StatePoolWaiting{NextDue: p.nextDue}
 }
 
-// recordDue notes a time reported by a waiting broadcast, keeping the earliest seen
-// during the current call to Advance. The zero time means the broadcast has nothing
+// recordDue notes a time reported by a waiting publish, keeping the earliest seen
+// during the current call to Advance. The zero time means the publish has nothing
 // scheduled and is ignored.
 func (p *Pool[K, N, M]) recordDue(due time.Time) {
 	if due.IsZero() {
@@ -169,10 +169,10 @@ func (p *Pool[K, N, M]) recordDue(due time.Time) {
 	}
 }
 
-// handleEvent translates a [PoolEvent] into the broadcast it is addressed to and the event
-// to deliver to it. Both return values are nil when the event names no broadcast, either
+// handleEvent translates a [PoolEvent] into the publish it is addressed to and the event
+// to deliver to it. Both return values are nil when the event names no publish, either
 // because it carries an unknown query id or because it is not addressed to one.
-func (p *Pool[K, N, M]) handleEvent(ctx context.Context, ev PoolEvent) (sm Broadcast, out BroadcastEvent) {
+func (p *Pool[K, N, M]) handleEvent(ctx context.Context, ev PoolEvent) (sm Publish, out PublishEvent) {
 	_, span := p.cfg.Tracer.Start(ctx, "Pool.handleEvent", trace.WithAttributes(coordt.AttrInEvent(ev)))
 	defer func() {
 		span.SetAttributes(coordt.AttrOutEvent(out))
@@ -183,14 +183,14 @@ func (p *Pool[K, N, M]) handleEvent(ctx context.Context, ev PoolEvent) (sm Broad
 	case *EventPoolStartFollowUp[K, N, M]:
 		p.bcs[ev.QueryID] = NewFollowUp(ev.QueryID, p.qp, ev.Message, ev.Seed, p.cfg.Tracer)
 
-		return p.bcs[ev.QueryID], &EventBroadcastStart[K, N]{
+		return p.bcs[ev.QueryID], &EventPublishStart[K, N]{
 			Target: ev.Target,
 		}
 
 	case *EventPoolStartStatic[K, N, M]:
 		p.bcs[ev.QueryID] = NewStatic(ev.QueryID, ev.Message, ev.Nodes, p.cfg.Tracer)
 
-		return p.bcs[ev.QueryID], &EventBroadcastStart[K, N]{
+		return p.bcs[ev.QueryID], &EventPublishStart[K, N]{
 			Target: ev.Target,
 		}
 
@@ -201,34 +201,34 @@ func (p *Pool[K, N, M]) handleEvent(ctx context.Context, ev PoolEvent) (sm Broad
 		}
 		p.bcs[ev.QueryID] = o
 
-		return p.bcs[ev.QueryID], &EventBroadcastStart[K, N]{
+		return p.bcs[ev.QueryID], &EventPublishStart[K, N]{
 			Target: ev.Target,
 		}
 
-	case *EventPoolStopBroadcast:
-		return p.bcs[ev.QueryID], &EventBroadcastStop{}
+	case *EventPoolStopPublish:
+		return p.bcs[ev.QueryID], &EventPublishStop{}
 
 	case *EventPoolGetCloserNodesSuccess[K, N]:
-		return p.bcs[ev.QueryID], &EventBroadcastNodeResponse[K, N]{
+		return p.bcs[ev.QueryID], &EventPublishNodeResponse[K, N]{
 			NodeID:      ev.NodeID,
 			CloserNodes: ev.CloserNodes,
 		}
 
 	case *EventPoolGetCloserNodesFailure[K, N]:
-		return p.bcs[ev.QueryID], &EventBroadcastNodeFailure[K, N]{
+		return p.bcs[ev.QueryID], &EventPublishNodeFailure[K, N]{
 			NodeID: ev.NodeID,
 			Error:  ev.Error,
 		}
 
 	case *EventPoolStoreRecordSuccess[K, N, M]:
-		return p.bcs[ev.QueryID], &EventBroadcastStoreRecordSuccess[K, N, M]{
+		return p.bcs[ev.QueryID], &EventPublishStoreRecordSuccess[K, N, M]{
 			NodeID:   ev.NodeID,
 			Request:  ev.Request,
 			Response: ev.Response,
 		}
 
 	case *EventPoolStoreRecordFailure[K, N, M]:
-		return p.bcs[ev.QueryID], &EventBroadcastStoreRecordFailure[K, N, M]{
+		return p.bcs[ev.QueryID], &EventPublishStoreRecordFailure[K, N, M]{
 			NodeID:  ev.NodeID,
 			Request: ev.Request,
 			Error:   ev.Error,
@@ -244,34 +244,34 @@ func (p *Pool[K, N, M]) handleEvent(ctx context.Context, ev PoolEvent) (sm Broad
 	return nil, nil
 }
 
-// advanceBroadcast advances the given broadcast and translates the state it reports into a
+// advancePublish advances the given publish and translates the state it reports into a
 // [PoolState]. The boolean reports whether that state is one the pool should return; when it
-// is false the broadcast produced no instruction and the returned state is nil.
-func (p *Pool[K, N, M]) advanceBroadcast(ctx context.Context, now time.Time, sm Broadcast, bev BroadcastEvent) (PoolState, bool) {
-	ctx, span := p.cfg.Tracer.Start(ctx, "Pool.advanceBroadcast", trace.WithAttributes(coordt.AttrInEvent(bev)))
+// is false the publish produced no instruction and the returned state is nil.
+func (p *Pool[K, N, M]) advancePublish(ctx context.Context, now time.Time, sm Publish, bev PublishEvent) (PoolState, bool) {
+	ctx, span := p.cfg.Tracer.Start(ctx, "Pool.advancePublish", trace.WithAttributes(coordt.AttrInEvent(bev)))
 	defer span.End()
 
 	state := sm.Advance(ctx, now, bev)
 	switch st := state.(type) {
-	case *StateBroadcastFindCloser[K, N]:
+	case *StatePublishFindCloser[K, N]:
 		return &StatePoolFindCloser[K, N]{
 			QueryID: st.QueryID,
 			NodeID:  st.NodeID,
 			Target:  st.Target,
 		}, true
-	case *StateBroadcastWaiting:
+	case *StatePublishWaiting:
 		// Waiting carries no instruction for the caller, so it does not end the walk.
-		// The time recorded here is reported only if no broadcast has work to hand out.
+		// The time recorded here is reported only if no publish has work to hand out.
 		p.recordDue(st.NextDue)
-	case *StateBroadcastStoreRecord[K, N, M]:
+	case *StatePublishStoreRecord[K, N, M]:
 		return &StatePoolStoreRecord[K, N, M]{
 			QueryID: st.QueryID,
 			NodeID:  st.NodeID,
 			Message: st.Message,
 		}, true
-	case *StateBroadcastFinished[K, N]:
+	case *StatePublishFinished[K, N]:
 		delete(p.bcs, st.QueryID)
-		return &StatePoolBroadcastFinished[K, N]{
+		return &StatePoolPublishFinished[K, N]{
 			QueryID:    st.QueryID,
 			Contacted:  st.Contacted,
 			Errors:     st.Errors,
@@ -288,36 +288,36 @@ type PoolState interface {
 	poolState()
 }
 
-// StatePoolFindCloser indicates that one of the pool's broadcasts wants the given node
+// StatePoolFindCloser indicates that one of the pool's publishes wants the given node
 // queried for nodes closer to the target key.
 type StatePoolFindCloser[K kad.Key[K], N kad.NodeID[K]] struct {
-	QueryID coordt.QueryID // the id of the broadcast operation that wants to send the message
+	QueryID coordt.QueryID // the id of the publish operation that wants to send the message
 	Target  K              // the key that the query wants to find closer nodes for
 	NodeID  N              // the node to send the message to
 }
 
-// StatePoolWaiting indicates that the broadcast [Pool] holds broadcasts but none of them had
+// StatePoolWaiting indicates that the publish [Pool] holds publishes but none of them had
 // work to hand out, so every one of them is waiting on a response.
 type StatePoolWaiting struct {
 	NextDue time.Time // the earliest time advancing the pool could make progress, zero if there is none
 }
 
-// StatePoolStoreRecord indicates that one of the pool's broadcasts wants the given message
+// StatePoolStoreRecord indicates that one of the pool's publishes wants the given message
 // sent to the given node to store a record. The caller is expected to report the outcome
 // with an [EventPoolStoreRecordSuccess] or [EventPoolStoreRecordFailure] event.
 type StatePoolStoreRecord[K kad.Key[K], N kad.NodeID[K], M coordt.Message[K, N]] struct {
-	QueryID coordt.QueryID // the id of the broadcast operation that wants to send the message
+	QueryID coordt.QueryID // the id of the publish operation that wants to send the message
 	NodeID  N              // the node to send the message to
 	Message M              // the message that should be sent to the remote node
 }
 
-// StatePoolBroadcastFinished indicates that the broadcast operation with the id QueryID has
+// StatePoolPublishFinished indicates that the publish operation with the id QueryID has
 // finished. Contacted holds every node asked to store the record, and excludes the nodes
 // queried to find the closest ones. Errors is keyed by the string representation of a node in
 // Contacted and holds the error that node returned, so an operation in which every store
 // succeeded carries an empty map.
-type StatePoolBroadcastFinished[K kad.Key[K], N kad.NodeID[K]] struct {
-	QueryID   coordt.QueryID      // the id of the broadcast operation that has finished
+type StatePoolPublishFinished[K kad.Key[K], N kad.NodeID[K]] struct {
+	QueryID   coordt.QueryID      // the id of the publish operation that has finished
 	Contacted []N                 // all nodes asked to store the record, successful or not
 	Errors    map[string]struct { // the error returned by any contacted node that failed
 		Node N     // a node from the Contacted slice
@@ -326,29 +326,29 @@ type StatePoolBroadcastFinished[K kad.Key[K], N kad.NodeID[K]] struct {
 	QueryStats query.QueryStats // the stats of the lookup that found the nodes, zero if none was run
 }
 
-// StatePoolIdle means that the broadcast [Pool] is not managing any broadcast
+// StatePoolIdle means that the publish [Pool] is not managing any publish
 // operations at this time.
 type StatePoolIdle struct{}
 
 // poolState() ensures that only [PoolState]s can be returned by advancing the
 // [Pool] state machine.
-func (*StatePoolFindCloser[K, N]) poolState()        {}
-func (*StatePoolWaiting) poolState()                 {}
-func (*StatePoolStoreRecord[K, N, M]) poolState()    {}
-func (*StatePoolBroadcastFinished[K, N]) poolState() {}
-func (*StatePoolIdle) poolState()                    {}
+func (*StatePoolFindCloser[K, N]) poolState()      {}
+func (*StatePoolWaiting) poolState()               {}
+func (*StatePoolStoreRecord[K, N, M]) poolState()  {}
+func (*StatePoolPublishFinished[K, N]) poolState() {}
+func (*StatePoolIdle) poolState()                  {}
 
-// PoolEvent is an event intended to advance the state of the broadcast [Pool] state machine.
+// PoolEvent is an event intended to advance the state of the publish [Pool] state machine.
 // An event flows into the pool and a state flows out of it.
 type PoolEvent interface {
 	poolEvent()
 }
 
-// EventPoolPoll is an event that signals the broadcast [Pool] state machine
+// EventPoolPoll is an event that signals the publish [Pool] state machine
 // that it can perform housekeeping work such as time out queries.
 type EventPoolPoll struct{}
 
-// EventPoolStartFollowUp starts a broadcast that runs the [FollowUp] strategy, finding the nodes
+// EventPoolStartFollowUp starts a publish that runs the [FollowUp] strategy, finding the nodes
 // closest to the target key before storing the record with any of them.
 type EventPoolStartFollowUp[K kad.Key[K], N kad.NodeID[K], M coordt.Message[K, N]] struct {
 	QueryID coordt.QueryID // the unique id for this operation
@@ -357,7 +357,7 @@ type EventPoolStartFollowUp[K kad.Key[K], N kad.NodeID[K], M coordt.Message[K, N
 	Seed    []N            // the closest nodes known so far, from where the query starts
 }
 
-// EventPoolStartStatic starts a broadcast that runs the [Static] strategy, storing the record
+// EventPoolStartStatic starts a publish that runs the [Static] strategy, storing the record
 // with a fixed set of nodes.
 type EventPoolStartStatic[K kad.Key[K], N kad.NodeID[K], M coordt.Message[K, N]] struct {
 	QueryID coordt.QueryID // the unique id for this operation
@@ -366,7 +366,7 @@ type EventPoolStartStatic[K kad.Key[K], N kad.NodeID[K], M coordt.Message[K, N]]
 	Nodes   []N            // the nodes the record is stored with
 }
 
-// EventPoolStartOptimistic starts a broadcast that runs the [Optimistic] strategy, storing the
+// EventPoolStartOptimistic starts a publish that runs the [Optimistic] strategy, storing the
 // record with nodes as the walk towards the target key finds them.
 type EventPoolStartOptimistic[K kad.Key[K], N kad.NodeID[K], M coordt.Message[K, N]] struct {
 	QueryID     coordt.QueryID // the unique id for this operation
@@ -376,24 +376,24 @@ type EventPoolStartOptimistic[K kad.Key[K], N kad.NodeID[K], M coordt.Message[K,
 	NetworkSize int            // the estimated number of nodes in the network
 }
 
-// EventPoolStopBroadcast notifies broadcast [Pool] to stop a broadcast
+// EventPoolStopPublish notifies publish [Pool] to stop a publish
 // operation.
-type EventPoolStopBroadcast struct {
-	QueryID coordt.QueryID // the id of the broadcast operation that should be stopped
+type EventPoolStopPublish struct {
+	QueryID coordt.QueryID // the id of the publish operation that should be stopped
 }
 
 // EventPoolGetCloserNodesSuccess notifies a [Pool] that a remote node (NodeID)
 // has successfully responded with closer nodes (CloserNodes) to the Target key
-// for the broadcast operation with the given id (QueryID).
+// for the publish operation with the given id (QueryID).
 type EventPoolGetCloserNodesSuccess[K kad.Key[K], N kad.NodeID[K]] struct {
-	QueryID     coordt.QueryID // the id of the broadcast operation that this response belongs to
+	QueryID     coordt.QueryID // the id of the publish operation that this response belongs to
 	NodeID      N              // the node the message was sent to and that replied
 	Target      K              // the key that closer nodes are searched for
 	CloserNodes []N            // the closer nodes sent by the node NodeID
 }
 
 // EventPoolGetCloserNodesFailure notifies a [Pool] that a remote node (NodeID)
-// has failed responding with closer nodes to the Target key for the broadcast
+// has failed responding with closer nodes to the Target key for the publish
 // operation with the given id (QueryID).
 type EventPoolGetCloserNodesFailure[K kad.Key[K], N kad.NodeID[K]] struct {
 	QueryID coordt.QueryID // the id of the query that sent the message
@@ -402,7 +402,7 @@ type EventPoolGetCloserNodesFailure[K kad.Key[K], N kad.NodeID[K]] struct {
 	Error   error          // the error that caused the failure, if any
 }
 
-// EventPoolStoreRecordSuccess notifies the broadcast [Pool] that storing a record with a
+// EventPoolStoreRecordSuccess notifies the publish [Pool] that storing a record with a
 // remote node succeeded. Request holds the message that was sent. A response is optional,
 // since a protocol need not confirm a store, so Response may be nil.
 type EventPoolStoreRecordSuccess[K kad.Key[K], N kad.NodeID[K], M coordt.Message[K, N]] struct {
@@ -412,7 +412,7 @@ type EventPoolStoreRecordSuccess[K kad.Key[K], N kad.NodeID[K], M coordt.Message
 	Response M              // the reply from the remote node, nil if the protocol sends none
 }
 
-// EventPoolStoreRecordFailure notifies the broadcast [Pool] that storing a record with a
+// EventPoolStoreRecordFailure notifies the publish [Pool] that storing a record with a
 // remote node failed. Request holds the message that was sent and Error the reason it failed.
 type EventPoolStoreRecordFailure[K kad.Key[K], N kad.NodeID[K], M coordt.Message[K, N]] struct {
 	QueryID coordt.QueryID // the id of the query that sent the message
@@ -421,9 +421,9 @@ type EventPoolStoreRecordFailure[K kad.Key[K], N kad.NodeID[K], M coordt.Message
 	Error   error          // the error that caused the failure
 }
 
-// poolEvent() ensures that only events accepted by a broadcast [Pool] can be
+// poolEvent() ensures that only events accepted by a publish [Pool] can be
 // assigned to the [PoolEvent] interface.
-func (*EventPoolStopBroadcast) poolEvent()               {}
+func (*EventPoolStopPublish) poolEvent()                 {}
 func (*EventPoolPoll) poolEvent()                        {}
 func (*EventPoolStartFollowUp[K, N, M]) poolEvent()      {}
 func (*EventPoolStartStatic[K, N, M]) poolEvent()        {}

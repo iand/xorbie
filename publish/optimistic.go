@@ -1,4 +1,4 @@
-package brdcst
+package publish
 
 import (
 	"context"
@@ -93,7 +93,7 @@ func DefaultOptimisticConfig() *OptimisticConfig {
 	}
 }
 
-// The Optimistic state machine broadcasts a record while it is still walking towards the target
+// The Optimistic state machine publishes a record while it is still walking towards the target
 // key, rather than waiting for the walk to settle on the closest nodes first.
 //
 // It rests on knowing roughly how large the network is. Given an estimate, the distance within
@@ -103,32 +103,32 @@ func DefaultOptimisticConfig() *OptimisticConfig {
 // unlikely. Both thresholds come from the configuration alone and are computed once, when the
 // state machine is created.
 //
-// The state machine emits [StateBroadcastFindCloser] to advance the walk, expecting an
-// [EventBroadcastNodeResponse] or [EventBroadcastNodeFailure] in reply, and
-// [StateBroadcastStoreRecord] to ask for the record to be stored with one node. Only one
+// The state machine emits [StatePublishFindCloser] to advance the walk, expecting an
+// [EventPublishNodeResponse] or [EventPublishNodeFailure] in reply, and
+// [StatePublishStoreRecord] to ask for the record to be stored with one node. Only one
 // instruction is emitted per advance and the walk takes precedence, so stores interleave with the
 // walk, filling the advances where the walk is waiting, rather than pre-empting it.
 //
 // Once the walk has ended, by exhaustion or by the set threshold, every node among the closest
 // that has not already been asked is asked in turn. When no store is outstanding the machine
-// emits [StateBroadcastFinished], reporting every node asked to store the record and the error
+// emits [StatePublishFinished], reporting every node asked to store the record and the error
 // for any that failed.
 //
-// The [EventBroadcastStop] event abandons the operation, cancelling the walk if it is still
+// The [EventPublishStop] event abandons the operation, cancelling the walk if it is still
 // running and recording every node not yet contacted or not yet heard from as having failed.
 //
 // This is the algorithm described in Trautwein et al. 2023, "IPFS in the Fast Lane:
 // Accelerating Record Storage with Optimistic Provide".
 type Optimistic[K kad.Key[K], N kad.NodeID[K], M coordt.Message[K, N]] struct {
-	// queryID is the unique id of this broadcast operation
+	// queryID is the unique id of this publish operation
 	queryID coordt.QueryID
 
 	// cfg is the configuration supplied to the Optimistic
 	cfg *OptimisticConfig
 
-	// queryPool is the pool in which the walk is run. It belongs to the broadcast pool that
+	// queryPool is the pool in which the walk is run. It belongs to the publish pool that
 	// created this state machine and is shared with its siblings, so advancing it may produce
-	// work for another broadcast.
+	// work for another publish.
 	queryPool *query.Pool[K, N, M]
 
 	// msg is the message sent to each node to store the record
@@ -168,7 +168,7 @@ type Optimistic[K kad.Key[K], N kad.NodeID[K], M coordt.Message[K, N]] struct {
 	// started records whether the operation has begun
 	started bool
 
-	// stopped records whether the operation was abandoned by an [EventBroadcastStop]
+	// stopped records whether the operation was abandoned by an [EventPublishStop]
 	stopped bool
 
 	// todo holds the nodes that have yet to be asked to store the record
@@ -187,7 +187,7 @@ type Optimistic[K kad.Key[K], N kad.NodeID[K], M coordt.Message[K, N]] struct {
 	}
 
 	// tracer traces the execution of this state machine. It is supplied by the pool that
-	// created it, since the per-broadcast configuration carries no telemetry of its own.
+	// created it, since the per-publish configuration carries no telemetry of its own.
 	tracer trace.Tracer
 }
 
@@ -198,7 +198,7 @@ type foundNode[N any] struct {
 	distance float64
 }
 
-// NewOptimistic creates a state machine that broadcasts msg to nodes close to the target it is
+// NewOptimistic creates a state machine that publishes msg to nodes close to the target it is
 // started with, walking from seeds in pool and reporting progress under the query id qid.
 //
 // networkSize is the estimated number of nodes in the network, from which both distance
@@ -242,7 +242,7 @@ func NewOptimistic[K kad.Key[K], N kad.NodeID[K], M coordt.Message[K, N]](qid co
 	}, nil
 }
 
-// Advance advances the state of the [Optimistic] [Broadcast] state machine.
+// Advance advances the state of the [Optimistic] [Publish] state machine.
 //
 // An event belonging to the walk is forwarded to the query pool. When the pool asks for a node to
 // be contacted, that instruction is returned rather than held back in favour of a store: the pool
@@ -250,7 +250,7 @@ func NewOptimistic[K kad.Key[K], N kad.NodeID[K], M coordt.Message[K, N]](qid co
 // so an instruction the caller never receives holds a request slot open until it times out. Only
 // when the walk has nothing to ask for does the state machine look for a node still to be asked to
 // store the record, falling back to reporting that it is waiting or that it has finished.
-func (o *Optimistic[K, N, M]) Advance(ctx context.Context, now time.Time, ev BroadcastEvent) (out BroadcastState) {
+func (o *Optimistic[K, N, M]) Advance(ctx context.Context, now time.Time, ev PublishEvent) (out PublishState) {
 	ctx, span := o.tracer.Start(ctx, "Optimistic.Advance", trace.WithAttributes(coordt.AttrInEvent(ev)))
 	defer func() {
 		span.SetAttributes(coordt.AttrOutEvent(out))
@@ -293,7 +293,7 @@ func (o *Optimistic[K, N, M]) Advance(ctx context.Context, now time.Time, ev Bro
 			o.fail(n, fmt.Errorf("cancelled"))
 		}
 
-		return &StateBroadcastFinished[K, N]{
+		return &StatePublishFinished[K, N]{
 			QueryID:    o.queryID,
 			Contacted:  o.contacted,
 			Errors:     o.failed,
@@ -305,7 +305,7 @@ func (o *Optimistic[K, N, M]) Advance(ctx context.Context, now time.Time, ev Bro
 		delete(o.todo, k)
 		o.waiting[k] = n
 		o.contacted = append(o.contacted, n)
-		return &StateBroadcastStoreRecord[K, N, M]{
+		return &StatePublishStoreRecord[K, N, M]{
 			QueryID: o.queryID,
 			NodeID:  n,
 			Message: o.msg,
@@ -315,11 +315,11 @@ func (o *Optimistic[K, N, M]) Advance(ctx context.Context, now time.Time, ev Bro
 	if len(o.waiting) > 0 || o.walking {
 		// a store record request carries no deadline, so the only time at which this state
 		// machine could make progress on its own is when a walk request times out
-		return &StateBroadcastWaiting{QueryID: o.queryID, NextDue: o.nextDue}
+		return &StatePublishWaiting{QueryID: o.queryID, NextDue: o.nextDue}
 	}
 
 	if o.started {
-		return &StateBroadcastFinished[K, N]{
+		return &StatePublishFinished[K, N]{
 			QueryID:    o.queryID,
 			Contacted:  o.contacted,
 			Errors:     o.failed,
@@ -327,13 +327,13 @@ func (o *Optimistic[K, N, M]) Advance(ctx context.Context, now time.Time, ev Bro
 		}
 	}
 
-	return &StateBroadcastIdle{}
+	return &StatePublishIdle{}
 }
 
-// handleEvent receives a [BroadcastEvent] and returns the corresponding query pool event
-// ([query.PoolEvent]). Some [BroadcastEvent] events don't map to a query pool event, in which
+// handleEvent receives a [PublishEvent] and returns the corresponding query pool event
+// ([query.PoolEvent]). Some [PublishEvent] events don't map to a query pool event, in which
 // case this method handles that event and returns nil.
-func (o *Optimistic[K, N, M]) handleEvent(ctx context.Context, ev BroadcastEvent) (out query.PoolEvent) {
+func (o *Optimistic[K, N, M]) handleEvent(ctx context.Context, ev PublishEvent) (out query.PoolEvent) {
 	_, span := o.tracer.Start(ctx, "Optimistic.handleEvent", trace.WithAttributes(coordt.AttrInEvent(ev)))
 	defer func() {
 		span.SetAttributes(coordt.AttrOutEvent(out))
@@ -341,7 +341,7 @@ func (o *Optimistic[K, N, M]) handleEvent(ctx context.Context, ev BroadcastEvent
 	}()
 
 	switch ev := ev.(type) {
-	case *EventBroadcastStart[K, N]:
+	case *EventPublishStart[K, N]:
 		o.started = true
 		o.walking = true
 		o.target = ev.Target
@@ -352,14 +352,14 @@ func (o *Optimistic[K, N, M]) handleEvent(ctx context.Context, ev BroadcastEvent
 			Target:  ev.Target,
 			Seed:    o.seeds,
 		}
-	case *EventBroadcastStop:
+	case *EventPublishStop:
 		o.stopped = true
 		if !o.walking {
 			return nil
 		}
 
 		return &query.EventPoolStopQuery{QueryID: o.queryID}
-	case *EventBroadcastNodeResponse[K, N]:
+	case *EventPublishNodeResponse[K, N]:
 		o.discover(ev.CloserNodes)
 
 		return &query.EventPoolNodeResponse[K, N]{
@@ -367,18 +367,18 @@ func (o *Optimistic[K, N, M]) handleEvent(ctx context.Context, ev BroadcastEvent
 			NodeID:      ev.NodeID,
 			CloserNodes: ev.CloserNodes,
 		}
-	case *EventBroadcastNodeFailure[K, N]:
+	case *EventPublishNodeFailure[K, N]:
 		return &query.EventPoolNodeFailure[K, N]{
 			QueryID: o.queryID,
 			NodeID:  ev.NodeID,
 			Error:   ev.Error,
 		}
-	case *EventBroadcastStoreRecordSuccess[K, N, M]:
+	case *EventPublishStoreRecordSuccess[K, N, M]:
 		delete(o.waiting, ev.NodeID.String())
-	case *EventBroadcastStoreRecordFailure[K, N, M]:
+	case *EventPublishStoreRecordFailure[K, N, M]:
 		delete(o.waiting, ev.NodeID.String())
 		o.fail(ev.NodeID, ev.Error)
-	case *EventBroadcastPoll:
+	case *EventPublishPoll:
 		// ignore, nothing to do
 		return &query.EventPoolPoll{}
 	default:
@@ -389,12 +389,12 @@ func (o *Optimistic[K, N, M]) handleEvent(ctx context.Context, ev BroadcastEvent
 }
 
 // advancePool advances the query pool with the event returned by [Optimistic.handleEvent] and
-// translates the state it reports into a [BroadcastState]. The boolean reports whether that
+// translates the state it reports into a [PublishState]. The boolean reports whether that
 // state is one the caller should return; when it is false the returned state is nil.
 //
 // A pool that reports it is waiting is not terminal here, since a node may be waiting to be asked
 // to store the record while the walk is still in progress.
-func (o *Optimistic[K, N, M]) advancePool(ctx context.Context, now time.Time, ev query.PoolEvent) (out BroadcastState, term bool) {
+func (o *Optimistic[K, N, M]) advancePool(ctx context.Context, now time.Time, ev query.PoolEvent) (out PublishState, term bool) {
 	ctx, span := o.tracer.Start(ctx, "Optimistic.advancePool", trace.WithAttributes(coordt.AttrInEvent(ev)))
 	defer func() {
 		span.SetAttributes(coordt.AttrOutEvent(out))
@@ -404,7 +404,7 @@ func (o *Optimistic[K, N, M]) advancePool(ctx context.Context, now time.Time, ev
 	state := o.queryPool.Advance(ctx, now, ev)
 	switch st := state.(type) {
 	case *query.StatePoolFindCloser[K, N]:
-		return &StateBroadcastFindCloser[K, N]{
+		return &StatePublishFindCloser[K, N]{
 			QueryID: st.QueryID,
 			NodeID:  st.NodeID,
 			Target:  st.Target,

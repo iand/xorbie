@@ -16,9 +16,9 @@ import (
 	"go.opentelemetry.io/otel/metric"
 	"go.opentelemetry.io/otel/trace"
 
-	"github.com/iand/xorbie/brdcst"
 	"github.com/iand/xorbie/coordt"
 	"github.com/iand/xorbie/netsize"
+	"github.com/iand/xorbie/publish"
 	"github.com/iand/xorbie/routing"
 )
 
@@ -53,8 +53,8 @@ type Coordinator[K kad.Key[K], N kad.NodeID[K], M coordt.Message[K, N]] struct {
 	// queryBehaviour is the behaviour responsible for running user-submitted queries
 	queryBehaviour Behaviour[BehaviourEvent, BehaviourEvent]
 
-	// brdcstBehaviour is the behaviour responsible for running user-submitted queries to store records with nodes
-	brdcstBehaviour Behaviour[BehaviourEvent, BehaviourEvent]
+	// publishBehaviour is the behaviour responsible for running user-submitted queries to store records with nodes
+	publishBehaviour Behaviour[BehaviourEvent, BehaviourEvent]
 
 	// tele provides tracing and metric reporting capabilities
 	tele *Telemetry
@@ -100,8 +100,8 @@ type CoordinatorConfig[K kad.Key[K], N kad.NodeID[K], M coordt.Message[K, N]] st
 	// Query is the configuration used for the [PooledQueryBehaviour] which manages the execution of user queries.
 	Query QueryConfig[K, N]
 
-	// Brdcst is the configuration used for the [PooledBroadcastBehaviour] which manages the storing of records with other nodes.
-	Brdcst BroadcastConfig[K, N, M]
+	// Publish is the configuration used for the [PublishBehaviour] which manages the storing of records with other nodes.
+	Publish PublishConfig[K, N, M]
 }
 
 // Validate checks the configuration options and returns an error if any have invalid values.
@@ -143,7 +143,7 @@ func (cfg *CoordinatorConfig[K, N, M]) Validate() error {
 	}{
 		{"Query", cfg.Query.QueueCapacity},
 		{"Routing", cfg.Routing.QueueCapacity},
-		{"Brdcst", cfg.Brdcst.QueueCapacity},
+		{"Publish", cfg.Publish.QueueCapacity},
 	} {
 		if c.capacity <= cfg.Network.Capacity {
 			return &coordt.ConfigurationError{
@@ -174,10 +174,10 @@ func DefaultCoordinatorConfig[K kad.Key[K], N kad.NodeID[K], M coordt.Message[K,
 	cfg.Routing.Tracer = cfg.TracerProvider.Tracer(tracerName)
 	cfg.Routing.Meter = cfg.MeterProvider.Meter(meterName)
 
-	cfg.Brdcst = *DefaultBroadcastConfig[K, N, M]()
-	cfg.Brdcst.Logger = cfg.Logger
-	cfg.Brdcst.Tracer = cfg.TracerProvider.Tracer(tracerName)
-	cfg.Brdcst.Meter = cfg.MeterProvider.Meter(meterName)
+	cfg.Publish = *DefaultPublishConfig[K, N, M]()
+	cfg.Publish.Logger = cfg.Logger
+	cfg.Publish.Tracer = cfg.TracerProvider.Tracer(tracerName)
+	cfg.Publish.Meter = cfg.MeterProvider.Meter(meterName)
 
 	cfg.Network = *DefaultNetworkConfig()
 	cfg.Network.Logger = cfg.Logger
@@ -209,7 +209,7 @@ func NewCoordinator[K kad.Key[K], N kad.NodeID[K], M coordt.Message[K, N]](
 
 	cfg.Query.Tracer, cfg.Query.Meter = behaviourTracer, behaviourMeter
 	cfg.Routing.Tracer, cfg.Routing.Meter = behaviourTracer, behaviourMeter
-	cfg.Brdcst.Tracer, cfg.Brdcst.Meter = behaviourTracer, behaviourMeter
+	cfg.Publish.Tracer, cfg.Publish.Meter = behaviourTracer, behaviourMeter
 	cfg.Network.Tracer, cfg.Network.Meter = behaviourTracer, behaviourMeter
 
 	// initialize a new telemetry struct
@@ -305,20 +305,20 @@ func NewCoordinator[K kad.Key[K], N kad.NodeID[K], M coordt.Message[K, N]](
 		return nil, fmt.Errorf("network behaviour: %w", err)
 	}
 
-	bpCfg := brdcst.DefaultPoolConfig()
+	bpCfg := publish.DefaultPoolConfig()
 	bpCfg.Tracer = tele.Tracer
 	bpCfg.Optimistic.ReplicationFactor = cfg.ReplicationFactor
-	bpCfg.Optimistic.IndividualCertainty = cfg.Brdcst.OptimisticIndividualCertainty
-	bpCfg.Optimistic.SetStrictness = cfg.Brdcst.OptimisticSetStrictness
+	bpCfg.Optimistic.IndividualCertainty = cfg.Publish.OptimisticIndividualCertainty
+	bpCfg.Optimistic.SetStrictness = cfg.Publish.OptimisticSetStrictness
 
-	b, err := brdcst.NewPool[K, N, M](self, bpCfg)
+	b, err := publish.NewPool[K, N, M](self, bpCfg)
 	if err != nil {
-		return nil, fmt.Errorf("broadcast: %w", err)
+		return nil, fmt.Errorf("publish: %w", err)
 	}
 
-	brdcstBehaviour, err := NewPooledBroadcastBehaviour(b, &cfg.Brdcst)
+	publishBehaviour, err := NewPublishBehaviour(b, &cfg.Publish)
 	if err != nil {
-		return nil, fmt.Errorf("broadcast behaviour: %w", err)
+		return nil, fmt.Errorf("publish behaviour: %w", err)
 	}
 
 	ctx, cancel := context.WithCancel(context.Background())
@@ -336,7 +336,7 @@ func NewCoordinator[K kad.Key[K], N kad.NodeID[K], M coordt.Message[K, N]](
 		networkBehaviour: networkBehaviour,
 		routingBehaviour: routingBehaviour,
 		queryBehaviour:   queryBehaviour,
-		brdcstBehaviour:  brdcstBehaviour,
+		publishBehaviour: publishBehaviour,
 
 		routingNotifier: nullRoutingNotifier{},
 	}
@@ -383,8 +383,8 @@ func (c *Coordinator[K, N, M]) eventLoop(ctx context.Context) {
 			perform = c.routingBehaviour.Perform
 		case <-c.queryBehaviour.Ready():
 			perform = c.queryBehaviour.Perform
-		case <-c.brdcstBehaviour.Ready():
-			perform = c.brdcstBehaviour.Perform
+		case <-c.publishBehaviour.Ready():
+			perform = c.publishBehaviour.Perform
 		}
 
 		start := time.Now()
@@ -406,8 +406,8 @@ func (c *Coordinator[K, N, M]) dispatchEvent(ctx context.Context, ev BehaviourEv
 		c.networkBehaviour.Notify(ctx, ev)
 	case QueryCommand:
 		c.queryBehaviour.Notify(ctx, ev)
-	case BrdcstCommand:
-		c.brdcstBehaviour.Notify(ctx, ev)
+	case PublishCommand:
+		c.publishBehaviour.Notify(ctx, ev)
 	case RoutingCommand:
 		c.routingBehaviour.Notify(ctx, ev)
 	case RoutingNotification:
@@ -552,33 +552,33 @@ func (c *Coordinator[K, N, M]) QueryMessage(ctx context.Context, msg M, fn coord
 	return closest, stats, err
 }
 
-// BroadcastFollowUp stores msg with the nodes closest to its key, waiting until the lookup for
-// that key has settled before following up by sending the message. It returns when the broadcast
+// PublishFollowUp stores msg with the nodes closest to its key, waiting until the lookup for
+// that key has settled before following up by sending the message. It returns when the publish
 // has finished, with the counts of what it did.
-func (c *Coordinator[K, N, M]) BroadcastFollowUp(ctx context.Context, msg M) (coordt.BroadcastStats, error) {
-	ctx, span := c.tele.Tracer.Start(ctx, "Coordinator.BroadcastFollowUp")
+func (c *Coordinator[K, N, M]) PublishFollowUp(ctx context.Context, msg M) (coordt.PublishStats, error) {
+	ctx, span := c.tele.Tracer.Start(ctx, "Coordinator.PublishFollowUp")
 	defer span.End()
 	if any(msg) == nil {
-		return coordt.BroadcastStats{}, fmt.Errorf("no message supplied for broadcast")
+		return coordt.PublishStats{}, fmt.Errorf("no message supplied for publish")
 	}
-	c.cfg.Logger.Debug("starting broadcast with message", logAttrKey(msg.Target()))
+	c.cfg.Logger.Debug("starting publish with message", logAttrKey(msg.Target()))
 
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
 
 	seeds, err := c.GetClosestNodes(ctx, msg.Target(), c.cfg.ReplicationFactor)
 	if err != nil {
-		return coordt.BroadcastStats{}, err
+		return coordt.PublishStats{}, err
 	}
 
 	if len(seeds) == 0 {
-		return coordt.BroadcastStats{}, fmt.Errorf("no nodes known to store the record with")
+		return coordt.PublishStats{}, fmt.Errorf("no nodes known to store the record with")
 	}
 
-	waiter := NewBroadcastWaiter[K, N, M](0) // zero capacity since awaitBroadcast ignores progress events
+	waiter := NewPublishWaiter[K, N, M](0) // zero capacity since awaitPublish ignores progress events
 	start := time.Now()
 
-	c.brdcstBehaviour.Notify(ctx, &EventStartFollowUpBroadcast[K, N, M]{
+	c.publishBehaviour.Notify(ctx, &EventStartFollowUpPublish[K, N, M]{
 		QueryID:           c.newOperationID(),
 		Target:            msg.Target(),
 		Message:           msg,
@@ -586,29 +586,29 @@ func (c *Coordinator[K, N, M]) BroadcastFollowUp(ctx context.Context, msg M) (co
 		Notify:            waiter,
 	})
 
-	return c.awaitBroadcast(ctx, waiter, start)
+	return c.awaitPublish(ctx, waiter, start)
 }
 
-// BroadcastStatic stores msg with the given nodes only. It returns when the broadcast has
+// PublishStatic stores msg with the given nodes only. It returns when the publish has
 // finished, with the counts of what it did.
-func (c *Coordinator[K, N, M]) BroadcastStatic(ctx context.Context, msg M, nodes []N) (coordt.BroadcastStats, error) {
-	ctx, span := c.tele.Tracer.Start(ctx, "Coordinator.BroadcastStatic")
+func (c *Coordinator[K, N, M]) PublishStatic(ctx context.Context, msg M, nodes []N) (coordt.PublishStats, error) {
+	ctx, span := c.tele.Tracer.Start(ctx, "Coordinator.PublishStatic")
 	defer span.End()
 	if any(msg) == nil {
-		return coordt.BroadcastStats{}, fmt.Errorf("no message supplied for broadcast")
+		return coordt.PublishStats{}, fmt.Errorf("no message supplied for publish")
 	}
 
 	if len(nodes) == 0 {
-		return coordt.BroadcastStats{}, fmt.Errorf("no nodes supplied for broadcast")
+		return coordt.PublishStats{}, fmt.Errorf("no nodes supplied for publish")
 	}
 
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
 
-	waiter := NewBroadcastWaiter[K, N, M](0) // zero capacity since awaitBroadcast ignores progress events
+	waiter := NewPublishWaiter[K, N, M](0) // zero capacity since awaitPublish ignores progress events
 	start := time.Now()
 
-	c.brdcstBehaviour.Notify(ctx, &EventStartStaticBroadcast[K, N, M]{
+	c.publishBehaviour.Notify(ctx, &EventStartStaticPublish[K, N, M]{
 		QueryID: c.newOperationID(),
 		Target:  msg.Target(),
 		Message: msg,
@@ -616,21 +616,21 @@ func (c *Coordinator[K, N, M]) BroadcastStatic(ctx context.Context, msg M, nodes
 		Notify:  waiter,
 	})
 
-	return c.awaitBroadcast(ctx, waiter, start)
+	return c.awaitPublish(ctx, waiter, start)
 }
 
-// BroadcastOptimistic stores msg with nodes close to its key, storing with each node as the lookup
-// finds it rather than waiting for the lookup to settle. It returns when the broadcast has
+// PublishOptimistic stores msg with nodes close to its key, storing with each node as the lookup
+// finds it rather than waiting for the lookup to settle. It returns when the publish has
 // finished, with the counts of what it did.
 //
 // The strategy derives its distance thresholds from the size of the network, which is not known
 // until enough lookups have completed. Until then this stores nothing and returns
-// [netsize.ErrNotEnoughData], leaving the caller to fall back to [Coordinator.BroadcastFollowUp].
-func (c *Coordinator[K, N, M]) BroadcastOptimistic(ctx context.Context, msg M) (coordt.BroadcastStats, error) {
-	ctx, span := c.tele.Tracer.Start(ctx, "Coordinator.BroadcastOptimistic")
+// [netsize.ErrNotEnoughData], leaving the caller to fall back to [Coordinator.PublishFollowUp].
+func (c *Coordinator[K, N, M]) PublishOptimistic(ctx context.Context, msg M) (coordt.PublishStats, error) {
+	ctx, span := c.tele.Tracer.Start(ctx, "Coordinator.PublishOptimistic")
 	defer span.End()
 	if any(msg) == nil {
-		return coordt.BroadcastStats{}, fmt.Errorf("no message supplied for broadcast")
+		return coordt.PublishStats{}, fmt.Errorf("no message supplied for publish")
 	}
 
 	ctx, cancel := context.WithCancel(ctx)
@@ -638,22 +638,22 @@ func (c *Coordinator[K, N, M]) BroadcastOptimistic(ctx context.Context, msg M) (
 
 	est, err := c.NetworkSize()
 	if err != nil {
-		return coordt.BroadcastStats{}, fmt.Errorf("network size estimate: %w", err)
+		return coordt.PublishStats{}, fmt.Errorf("network size estimate: %w", err)
 	}
 
 	seeds, err := c.GetClosestNodes(ctx, msg.Target(), c.cfg.ReplicationFactor)
 	if err != nil {
-		return coordt.BroadcastStats{}, err
+		return coordt.PublishStats{}, err
 	}
 
 	if len(seeds) == 0 {
-		return coordt.BroadcastStats{}, fmt.Errorf("no nodes known to store the record with")
+		return coordt.PublishStats{}, fmt.Errorf("no nodes known to store the record with")
 	}
 
-	waiter := NewBroadcastWaiter[K, N, M](0) // zero capacity since awaitBroadcast ignores progress events
+	waiter := NewPublishWaiter[K, N, M](0) // zero capacity since awaitPublish ignores progress events
 	start := time.Now()
 
-	c.brdcstBehaviour.Notify(ctx, &EventStartOptimisticBroadcast[K, N, M]{
+	c.publishBehaviour.Notify(ctx, &EventStartOptimisticPublish[K, N, M]{
 		QueryID:           c.newOperationID(),
 		Target:            msg.Target(),
 		Message:           msg,
@@ -662,19 +662,19 @@ func (c *Coordinator[K, N, M]) BroadcastOptimistic(ctx context.Context, msg M) (
 		Notify:            waiter,
 	})
 
-	return c.awaitBroadcast(ctx, waiter, start)
+	return c.awaitPublish(ctx, waiter, start)
 }
 
-// awaitBroadcast blocks until the broadcast the waiter belongs to has finished and reports what it
+// awaitPublish blocks until the publish the waiter belongs to has finished and reports what it
 // did, measured from start. Whether the counts it reports amount to a success is left to the
 // caller, since the number of nodes a record must reach differs by network.
-func (c *Coordinator[K, N, M]) awaitBroadcast(ctx context.Context, waiter *BroadcastWaiter[K, N, M], start time.Time) (coordt.BroadcastStats, error) {
-	ctx, span := c.tele.Tracer.Start(ctx, "Coordinator.awaitBroadcast")
+func (c *Coordinator[K, N, M]) awaitPublish(ctx context.Context, waiter *PublishWaiter[K, N, M], start time.Time) (coordt.PublishStats, error) {
+	ctx, span := c.tele.Tracer.Start(ctx, "Coordinator.awaitPublish")
 	defer span.End()
 
-	ev, err := c.waitForBroadcast(ctx, waiter)
+	ev, err := c.waitForPublish(ctx, waiter)
 	if err != nil {
-		return coordt.BroadcastStats{Start: start, End: time.Now()}, err
+		return coordt.PublishStats{Start: start, End: time.Now()}, err
 	}
 
 	// The per node errors are reported no further, so they are logged here rather than
@@ -683,7 +683,7 @@ func (c *Coordinator[K, N, M]) awaitBroadcast(ctx context.Context, waiter *Broad
 		c.cfg.Logger.Debug("node did not store record", "node", e.Node.String(), "err", e.Err)
 	}
 
-	stats := coordt.BroadcastStats{
+	stats := coordt.PublishStats{
 		Start:         start,
 		End:           time.Now(),
 		QueryRequests: ev.QueryStats.Requests,
@@ -777,9 +777,9 @@ func (c *Coordinator[K, N, M]) waitForQuery(ctx context.Context, queryID coordt.
 	}
 }
 
-// waitForBroadcast blocks until the broadcast the waiter belongs to reports that it has finished
+// waitForPublish blocks until the publish the waiter belongs to reports that it has finished
 // and returns the event it finished with.
-func (c *Coordinator[K, N, M]) waitForBroadcast(ctx context.Context, waiter *BroadcastWaiter[K, N, M]) (*EventBroadcastFinished[K, N], error) {
+func (c *Coordinator[K, N, M]) waitForPublish(ctx context.Context, waiter *PublishWaiter[K, N, M]) (*EventPublishFinished[K, N], error) {
 	for {
 		select {
 		case <-ctx.Done():

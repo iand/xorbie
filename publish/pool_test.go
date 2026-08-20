@@ -1,4 +1,4 @@
-package brdcst
+package publish
 
 import (
 	"context"
@@ -62,7 +62,7 @@ func TestPoolStopWhenNoQueries(t *testing.T) {
 
 func TestPoolFollowUpLifecycle(t *testing.T) {
 	// This test attempts to cover the whole lifecycle of
-	// a follow-up broadcast operation.
+	// a follow-up publish operation.
 	//
 	// We have a network of three peers: a, b, and, c
 	// First, we query all three while peer c fails to respond
@@ -186,8 +186,8 @@ func TestPoolFollowUpLifecycle(t *testing.T) {
 		Error:   timeoutErr,
 	})
 
-	// since we have contacted all nodes we knew, the broadcast has finished
-	finishState, ok := state.(*StatePoolBroadcastFinished[tiny.Key, tiny.Node])
+	// since we have contacted all nodes we knew, the publish has finished
+	finishState, ok := state.(*StatePoolPublishFinished[tiny.Key, tiny.Node])
 	require.True(t, ok, "state is %T", state)
 
 	require.Equal(t, queryID, finishState.QueryID)
@@ -202,9 +202,9 @@ func TestPoolFollowUpLifecycle(t *testing.T) {
 	require.Nil(t, p.bcs[queryID]) // should have been removed
 }
 
-// TestPoolStopsNamedBroadcast checks that the pool delivers a stop to the broadcast the event
+// TestPoolStopsNamedPublish checks that the pool delivers a stop to the publish the event
 // names and drops it once it reports that it has finished.
-func TestPoolStopsNamedBroadcast(t *testing.T) {
+func TestPoolStopsNamedPublish(t *testing.T) {
 	ctx := context.Background()
 	cfg := DefaultPoolConfig()
 
@@ -222,9 +222,9 @@ func TestPoolStopsNamedBroadcast(t *testing.T) {
 	})
 	require.IsType(t, &StatePoolStoreRecord[tiny.Key, tiny.Node, tiny.Message]{}, state)
 
-	state = p.Advance(ctx, epoch, &EventPoolStopBroadcast{QueryID: queryID})
+	state = p.Advance(ctx, epoch, &EventPoolStopPublish{QueryID: queryID})
 
-	st, ok := state.(*StatePoolBroadcastFinished[tiny.Key, tiny.Node])
+	st, ok := state.(*StatePoolPublishFinished[tiny.Key, tiny.Node])
 	require.True(t, ok, "state is %T", state)
 	require.Equal(t, queryID, st.QueryID)
 
@@ -240,14 +240,14 @@ func TestPoolStateInterfaceConformance(t *testing.T) {
 		&StatePoolWaiting{},
 		&StatePoolStoreRecord[tiny.Key, tiny.Node, tiny.Message]{},
 		&StatePoolFindCloser[tiny.Key, tiny.Node]{},
-		&StatePoolBroadcastFinished[tiny.Key, tiny.Node]{},
+		&StatePoolPublishFinished[tiny.Key, tiny.Node]{},
 	}
 	for _, st := range states {
 		st.poolState() // drives test coverage
 	}
 }
 
-// TestPoolReportsNextDue checks that the broadcast pool reports the due time of the query
+// TestPoolReportsNextDue checks that the publish pool reports the due time of the query
 // pool it delegates to while finding closer nodes, and reports nothing scheduled once it
 // moves on to storing records, which carry no deadline.
 func TestPoolReportsNextDue(t *testing.T) {
@@ -294,9 +294,9 @@ func TestPoolReportsNextDue(t *testing.T) {
 	require.True(t, state.(*StatePoolWaiting).NextDue.IsZero())
 }
 
-// TestPoolAdvancesEveryBroadcast checks that a broadcast waiting on outstanding requests does
-// not stop the pool producing work for another broadcast running alongside it.
-func TestPoolAdvancesEveryBroadcast(t *testing.T) {
+// TestPoolAdvancesEveryPublish checks that a publish waiting on outstanding requests does
+// not stop the pool producing work for another publish running alongside it.
+func TestPoolAdvancesEveryPublish(t *testing.T) {
 	ctx := context.Background()
 	cfg := DefaultPoolConfig()
 
@@ -311,8 +311,8 @@ func TestPoolAdvancesEveryBroadcast(t *testing.T) {
 	first := coordt.QueryID("first")
 	second := coordt.QueryID("second")
 
-	// a static broadcast takes its seed nodes as work to do, with no query phase, so both
-	// broadcasts can be driven to the point of waiting without involving the query pool
+	// a static publish takes its seed nodes as work to do, with no query phase, so both
+	// publishes can be driven to the point of waiting without involving the query pool
 	state := p.Advance(ctx, epoch, &EventPoolStartStatic[tiny.Key, tiny.Node, tiny.Message]{
 		QueryID: first,
 		Target:  target,
@@ -324,13 +324,13 @@ func TestPoolAdvancesEveryBroadcast(t *testing.T) {
 	require.Equal(t, first, srState.QueryID)
 	firstContacted := srState.NodeID
 
-	// the first broadcast's other node is contacted too, leaving it waiting on both
+	// the first publish's other node is contacted too, leaving it waiting on both
 	state = p.Advance(ctx, epoch, &EventPoolPoll{})
 	srState, ok = state.(*StatePoolStoreRecord[tiny.Key, tiny.Node, tiny.Message])
 	require.True(t, ok, "state is %T", state)
 	require.Equal(t, first, srState.QueryID)
 
-	// the second broadcast starts and contacts one of its two nodes, keeping the other to do
+	// the second publish starts and contacts one of its two nodes, keeping the other to do
 	state = p.Advance(ctx, epoch, &EventPoolStartStatic[tiny.Key, tiny.Node, tiny.Message]{
 		QueryID: second,
 		Target:  target,
@@ -342,7 +342,7 @@ func TestPoolAdvancesEveryBroadcast(t *testing.T) {
 	require.Equal(t, second, srState.QueryID)
 	secondContacted := srState.NodeID
 
-	// one of the first broadcast's records lands, which leaves it waiting on the other and
+	// one of the first publish's records lands, which leaves it waiting on the other and
 	// with nothing of its own to do
 	state = p.Advance(ctx, epoch, &EventPoolStoreRecordSuccess[tiny.Key, tiny.Node, tiny.Message]{
 		QueryID: first,
@@ -350,7 +350,7 @@ func TestPoolAdvancesEveryBroadcast(t *testing.T) {
 		Request: msg,
 	})
 
-	// the pool should hand out the second broadcast's remaining node rather than report
+	// the pool should hand out the second publish's remaining node rather than report
 	// that it is waiting on the first
 	srState, ok = state.(*StatePoolStoreRecord[tiny.Key, tiny.Node, tiny.Message])
 	require.True(t, ok, "state is %T", state)
@@ -358,9 +358,9 @@ func TestPoolAdvancesEveryBroadcast(t *testing.T) {
 	require.NotEqual(t, secondContacted, srState.NodeID)
 }
 
-// TestPoolReportsEarliestNextDueAcrossBroadcasts checks that when every broadcast is waiting the
+// TestPoolReportsEarliestNextDueAcrossPublishes checks that when every publish is waiting the
 // pool reports the earliest instant any of them could make progress, ignoring those with none.
-func TestPoolReportsEarliestNextDueAcrossBroadcasts(t *testing.T) {
+func TestPoolReportsEarliestNextDueAcrossPublishes(t *testing.T) {
 	ctx := context.Background()
 	cfg := DefaultPoolConfig()
 
@@ -375,7 +375,7 @@ func TestPoolReportsEarliestNextDueAcrossBroadcasts(t *testing.T) {
 	followUp := coordt.QueryID("followup")
 	static := coordt.QueryID("static")
 
-	// a follow up broadcast in its query phase waits on a request that carries a deadline
+	// a follow up publish in its query phase waits on a request that carries a deadline
 	state := p.Advance(ctx, epoch, &EventPoolStartFollowUp[tiny.Key, tiny.Node, tiny.Message]{
 		QueryID: followUp,
 		Target:  target,
@@ -384,7 +384,7 @@ func TestPoolReportsEarliestNextDueAcrossBroadcasts(t *testing.T) {
 	})
 	require.IsType(t, &StatePoolFindCloser[tiny.Key, tiny.Node]{}, state)
 
-	// a static broadcast waits on store record requests, which carry no deadline
+	// a static publish waits on store record requests, which carry no deadline
 	state = p.Advance(ctx, epoch, &EventPoolStartStatic[tiny.Key, tiny.Node, tiny.Message]{
 		QueryID: static,
 		Target:  target,
@@ -400,7 +400,7 @@ func TestPoolReportsEarliestNextDueAcrossBroadcasts(t *testing.T) {
 	require.True(t, ok, "state is %T", state)
 	require.Equal(t, static, srState.QueryID)
 
-	// one of the static broadcast's records lands, leaving every broadcast waiting
+	// one of the static publish's records lands, leaving every publish waiting
 	state = p.Advance(ctx, epoch, &EventPoolStoreRecordSuccess[tiny.Key, tiny.Node, tiny.Message]{
 		QueryID: static,
 		NodeID:  staticContacted,
@@ -408,14 +408,14 @@ func TestPoolReportsEarliestNextDueAcrossBroadcasts(t *testing.T) {
 	})
 
 	// the request deadline is the only instant at which the pool could make progress, so the
-	// static broadcast having none must not mask it
+	// static publish having none must not mask it
 	require.IsType(t, &StatePoolWaiting{}, state)
 	require.Equal(t, epoch.Add(cfg.pCfg.RequestTimeout), state.(*StatePoolWaiting).NextDue)
 }
 
 func TestPoolEventInterfaceConformance(t *testing.T) {
 	events := []PoolEvent{
-		&EventPoolStopBroadcast{},
+		&EventPoolStopPublish{},
 		&EventPoolPoll{},
 		&EventPoolStartFollowUp[tiny.Key, tiny.Node, tiny.Message]{},
 		&EventPoolStartStatic[tiny.Key, tiny.Node, tiny.Message]{},

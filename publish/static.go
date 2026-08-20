@@ -1,4 +1,4 @@
-package brdcst
+package publish
 
 import (
 	"context"
@@ -12,25 +12,25 @@ import (
 	"github.com/iand/xorbie/coordt"
 )
 
-// The Static state machine broadcasts a record to a fixed set of nodes.
+// The Static state machine publishes a record to a fixed set of nodes.
 //
 // Every node in the set becomes an outstanding piece of work, and the state machine emits
-// [StateBroadcastStoreRecord] to ask for the record to be stored with one of them, a single
+// [StatePublishStoreRecord] to ask for the record to be stored with one of them, a single
 // node per call.
 //
 // The state machine expects to be notified of the outcome of each store with the
-// [EventBroadcastStoreRecordSuccess] or [EventBroadcastStoreRecordFailure] events. A store
+// [EventPublishStoreRecordSuccess] or [EventPublishStoreRecordFailure] events. A store
 // request carries no deadline, so a node that never responds leaves the operation
 // outstanding indefinitely. While any node is outstanding and none is left to contact the
-// state machine emits [StateBroadcastWaiting].
+// state machine emits [StatePublishWaiting].
 //
-// Once no node is outstanding the state machine emits [StateBroadcastFinished], reporting
+// Once no node is outstanding the state machine emits [StatePublishFinished], reporting
 // every node contacted and the error for any that failed.
 //
-// The [EventBroadcastStop] event abandons the operation, recording every node not yet
+// The [EventPublishStop] event abandons the operation, recording every node not yet
 // contacted or not yet heard from as having failed.
 type Static[K kad.Key[K], N kad.NodeID[K], M coordt.Message[K, N]] struct {
-	// queryID is the unique id of this broadcast operation
+	// queryID is the unique id of this publish operation
 	queryID coordt.QueryID
 
 	// msg is the message sent to each node to store the record
@@ -56,11 +56,11 @@ type Static[K kad.Key[K], N kad.NodeID[K], M coordt.Message[K, N]] struct {
 	}
 
 	// tracer traces the execution of this state machine. It is supplied by the pool that
-	// created it, since the per-broadcast configuration carries no telemetry of its own.
+	// created it, since the per-publish configuration carries no telemetry of its own.
 	tracer trace.Tracer
 }
 
-// NewStatic creates a state machine that broadcasts msg to nodes, reporting progress under the
+// NewStatic creates a state machine that publishes msg to nodes, reporting progress under the
 // query id qid.
 func NewStatic[K kad.Key[K], N kad.NodeID[K], M coordt.Message[K, N]](qid coordt.QueryID, msg M, nodes []N, tracer trace.Tracer) *Static[K, N, M] {
 	return &Static[K, N, M]{
@@ -78,8 +78,8 @@ func NewStatic[K kad.Key[K], N kad.NodeID[K], M coordt.Message[K, N]](qid coordt
 	}
 }
 
-// Advance advances the state of the [Static] [Broadcast] state machine.
-func (f *Static[K, N, M]) Advance(ctx context.Context, now time.Time, ev BroadcastEvent) (out BroadcastState) {
+// Advance advances the state of the [Static] [Publish] state machine.
+func (f *Static[K, N, M]) Advance(ctx context.Context, now time.Time, ev PublishEvent) (out PublishState) {
 	_, span := f.tracer.Start(ctx, "Static.Advance", trace.WithAttributes(coordt.AttrInEvent(ev)))
 	defer func() {
 		span.SetAttributes(
@@ -93,12 +93,12 @@ func (f *Static[K, N, M]) Advance(ctx context.Context, now time.Time, ev Broadca
 	}()
 
 	switch ev := ev.(type) {
-	case *EventBroadcastStart[K, N]:
+	case *EventPublishStart[K, N]:
 		span.SetAttributes(attribute.Int("nodes", len(f.nodes)))
 		for _, n := range f.nodes {
 			f.todo[n.String()] = n
 		}
-	case *EventBroadcastStop:
+	case *EventPublishStop:
 		for _, n := range f.todo {
 			delete(f.todo, n.String())
 			f.failed[n.String()] = struct {
@@ -114,16 +114,16 @@ func (f *Static[K, N, M]) Advance(ctx context.Context, now time.Time, ev Broadca
 				Err  error
 			}{Node: n, Err: fmt.Errorf("cancelled")}
 		}
-	case *EventBroadcastStoreRecordSuccess[K, N, M]:
+	case *EventPublishStoreRecordSuccess[K, N, M]:
 		delete(f.waiting, ev.NodeID.String())
 		f.success[ev.NodeID.String()] = ev.NodeID
-	case *EventBroadcastStoreRecordFailure[K, N, M]:
+	case *EventPublishStoreRecordFailure[K, N, M]:
 		delete(f.waiting, ev.NodeID.String())
 		f.failed[ev.NodeID.String()] = struct {
 			Node N
 			Err  error
 		}{Node: ev.NodeID, Err: ev.Error}
-	case *EventBroadcastPoll:
+	case *EventPublishPoll:
 		// ignore, nothing to do
 	default:
 		panic(fmt.Sprintf("unexpected event: %T", ev))
@@ -132,7 +132,7 @@ func (f *Static[K, N, M]) Advance(ctx context.Context, now time.Time, ev Broadca
 	for k, n := range f.todo {
 		delete(f.todo, k)
 		f.waiting[k] = n
-		return &StateBroadcastStoreRecord[K, N, M]{
+		return &StatePublishStoreRecord[K, N, M]{
 			QueryID: f.queryID,
 			NodeID:  n,
 			Message: f.msg,
@@ -142,7 +142,7 @@ func (f *Static[K, N, M]) Advance(ctx context.Context, now time.Time, ev Broadca
 	if len(f.waiting) > 0 {
 		// a store record request carries no deadline, so there is no time at which
 		// advancing this state machine would make progress on its own
-		return &StateBroadcastWaiting{}
+		return &StatePublishWaiting{}
 	}
 
 	contacted := make([]N, 0, len(f.success)+len(f.failed))
@@ -153,7 +153,7 @@ func (f *Static[K, N, M]) Advance(ctx context.Context, now time.Time, ev Broadca
 		contacted = append(contacted, n.Node)
 	}
 
-	return &StateBroadcastFinished[K, N]{
+	return &StatePublishFinished[K, N]{
 		QueryID:   f.queryID,
 		Contacted: contacted,
 		Errors:    f.failed,

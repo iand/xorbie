@@ -30,10 +30,10 @@ type QueryCommand interface {
 	queryCommand()
 }
 
-// BrdcstCommand is a type of [BehaviourEvent] that instructs a [BrdcstBehaviour] to perform an action.
-type BrdcstCommand interface {
+// PublishCommand is a type of [BehaviourEvent] that instructs a [PublishBehaviour] to perform an action.
+type PublishCommand interface {
 	BehaviourEvent
-	brdcstCommand()
+	publishCommand()
 }
 
 type NodeHandlerRequest interface {
@@ -118,39 +118,39 @@ type EventStopQuery struct {
 func (*EventStopQuery) behaviourEvent() {}
 func (*EventStopQuery) queryCommand()   {}
 
-// EventStartFollowUpBroadcast starts a broadcast that finds the nodes closest to the target key
+// EventStartFollowUpPublish starts a publish that finds the nodes closest to the target key
 // before storing the record with any of them.
-type EventStartFollowUpBroadcast[K kad.Key[K], N kad.NodeID[K], M coordt.Message[K, N]] struct {
+type EventStartFollowUpPublish[K kad.Key[K], N kad.NodeID[K], M coordt.Message[K, N]] struct {
 	QueryID           coordt.QueryID
 	Target            K
 	Message           M
 	KnownClosestNodes []N
-	Notify            QueryMonitor[K, N, M, *EventBroadcastFinished[K, N]]
+	Notify            QueryMonitor[K, N, M, *EventPublishFinished[K, N]]
 }
 
-// EventStartStaticBroadcast starts a broadcast that stores the record with a fixed set of nodes.
-type EventStartStaticBroadcast[K kad.Key[K], N kad.NodeID[K], M coordt.Message[K, N]] struct {
+// EventStartStaticPublish starts a publish that stores the record with a fixed set of nodes.
+type EventStartStaticPublish[K kad.Key[K], N kad.NodeID[K], M coordt.Message[K, N]] struct {
 	QueryID coordt.QueryID
 	Target  K
 	Message M
 	Nodes   []N
-	Notify  QueryMonitor[K, N, M, *EventBroadcastFinished[K, N]]
+	Notify  QueryMonitor[K, N, M, *EventPublishFinished[K, N]]
 }
 
-// EventStartOptimisticBroadcast starts a broadcast that stores the record with nodes as the walk
+// EventStartOptimisticPublish starts a publish that stores the record with nodes as the walk
 // towards the target key finds them.
-type EventStartOptimisticBroadcast[K kad.Key[K], N kad.NodeID[K], M coordt.Message[K, N]] struct {
+type EventStartOptimisticPublish[K kad.Key[K], N kad.NodeID[K], M coordt.Message[K, N]] struct {
 	QueryID           coordt.QueryID
 	Target            K
 	Message           M
 	KnownClosestNodes []N
 	NetworkSize       int
-	Notify            QueryMonitor[K, N, M, *EventBroadcastFinished[K, N]]
+	Notify            QueryMonitor[K, N, M, *EventPublishFinished[K, N]]
 }
 
-func (*EventStartFollowUpBroadcast[K, N, M]) behaviourEvent()   {}
-func (*EventStartStaticBroadcast[K, N, M]) behaviourEvent()     {}
-func (*EventStartOptimisticBroadcast[K, N, M]) behaviourEvent() {}
+func (*EventStartFollowUpPublish[K, N, M]) behaviourEvent()   {}
+func (*EventStartStaticPublish[K, N, M]) behaviourEvent()     {}
+func (*EventStartOptimisticPublish[K, N, M]) behaviourEvent() {}
 
 // EventAddNode notifies the routing behaviour of a potential new node.
 type EventAddNode[K kad.Key[K], N kad.NodeID[K]] struct {
@@ -237,10 +237,10 @@ type EventQueryFinished[K kad.Key[K], N kad.NodeID[K]] struct {
 func (*EventQueryFinished[K, N]) behaviourEvent()     {}
 func (*EventQueryFinished[K, N]) terminalQueryEvent() {}
 
-// EventBroadcastFinished is emitted by the coordinator when a broadcasting
+// EventPublishFinished is emitted by the coordinator when a publishing
 // a record to the network has finished, either through running to completion or
 // by being canceled.
-type EventBroadcastFinished[K kad.Key[K], N kad.NodeID[K]] struct {
+type EventPublishFinished[K kad.Key[K], N kad.NodeID[K]] struct {
 	QueryID   coordt.QueryID
 	Contacted []N
 	Errors    map[string]struct {
@@ -249,16 +249,16 @@ type EventBroadcastFinished[K kad.Key[K], N kad.NodeID[K]] struct {
 	}
 
 	// QueryStats holds the stats of the lookup that found the nodes the record was stored
-	// with, and is zero for a broadcast that ran no lookup.
+	// with, and is zero for a publish that ran no lookup.
 	QueryStats query.QueryStats
 
-	// Err records why the broadcast ended when it ended without being attempted, and is
-	// nil otherwise. A broadcast that ran records per node outcomes in Errors instead.
+	// Err records why the publish ended when it ended without being attempted, and is
+	// nil otherwise. A publish that ran records per node outcomes in Errors instead.
 	Err error
 }
 
-func (*EventBroadcastFinished[K, N]) behaviourEvent()     {}
-func (*EventBroadcastFinished[K, N]) terminalQueryEvent() {}
+func (*EventPublishFinished[K, N]) behaviourEvent()     {}
+func (*EventPublishFinished[K, N]) terminalQueryEvent() {}
 
 // EventRoutingUpdated is emitted by the coordinator when a new node has been verified and added to the routing table.
 type EventRoutingUpdated[K kad.Key[K], N kad.NodeID[K]] struct {

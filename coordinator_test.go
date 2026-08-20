@@ -540,10 +540,10 @@ func TestCoordinatorContinuesWhenPeerStalls(t *testing.T) {
 	})
 }
 
-// TestCoordinatorBroadcastOptimisticNeedsAnEstimate checks that an optimistic broadcast started
+// TestCoordinatorPublishOptimisticNeedsAnEstimate checks that an optimistic publish started
 // before the coordinator can estimate the size of the network is refused, and refused in a way
 // the caller can tell apart from any other failure so that it can fall back to another strategy.
-func TestCoordinatorBroadcastOptimisticNeedsAnEstimate(t *testing.T) {
+func TestCoordinatorPublishOptimisticNeedsAnEstimate(t *testing.T) {
 	synctest.Test(t, func(t *testing.T) {
 		ctx := kadtest.CtxBubble(t)
 
@@ -561,15 +561,15 @@ func TestCoordinatorBroadcastOptimisticNeedsAnEstimate(t *testing.T) {
 		require.ErrorIs(t, err, netsize.ErrNotEnoughData)
 
 		msg := tiny.Message{Content: "store this", TargetKey: nodes[3].NodeID.Key()}
-		_, err = c.BroadcastOptimistic(ctx, msg)
+		_, err = c.PublishOptimistic(ctx, msg)
 		require.ErrorIs(t, err, netsize.ErrNotEnoughData)
 	})
 }
 
-// TestCoordinatorBroadcastOptimisticOnceAnEstimateExists checks that an optimistic broadcast runs
+// TestCoordinatorPublishOptimisticOnceAnEstimateExists checks that an optimistic publish runs
 // once the coordinator has an estimate to work from, and that it takes its replication factor and
 // certainties from the coordinator's configuration rather than from the caller.
-func TestCoordinatorBroadcastOptimisticOnceAnEstimateExists(t *testing.T) {
+func TestCoordinatorPublishOptimisticOnceAnEstimateExists(t *testing.T) {
 	synctest.Test(t, func(t *testing.T) {
 		ctx := kadtest.CtxBubble(t)
 
@@ -597,7 +597,7 @@ func TestCoordinatorBroadcastOptimisticOnceAnEstimateExists(t *testing.T) {
 		require.NoError(t, err)
 
 		msg := tiny.Message{Content: "store this", TargetKey: nodes[3].NodeID.Key()}
-		stats, err := c.BroadcastOptimistic(ctx, msg)
+		stats, err := c.PublishOptimistic(ctx, msg)
 		require.NoError(t, err)
 
 		require.Positive(t, stats.StoreRequests)
@@ -607,9 +607,9 @@ func TestCoordinatorBroadcastOptimisticOnceAnEstimateExists(t *testing.T) {
 	})
 }
 
-// TestCoordinatorBroadcastFollowUpReportsBothPhases checks that a follow up broadcast reports the
+// TestCoordinatorPublishFollowUpReportsBothPhases checks that a follow up publish reports the
 // lookup that found the nodes as well as the stores that followed it.
-func TestCoordinatorBroadcastFollowUpReportsBothPhases(t *testing.T) {
+func TestCoordinatorPublishFollowUpReportsBothPhases(t *testing.T) {
 	synctest.Test(t, func(t *testing.T) {
 		ctx := kadtest.CtxBubble(t)
 
@@ -624,7 +624,7 @@ func TestCoordinatorBroadcastFollowUpReportsBothPhases(t *testing.T) {
 		t.Cleanup(func() { require.NoError(t, c.Close()) })
 
 		msg := tiny.Message{Content: "store this", TargetKey: nodes[3].NodeID.Key()}
-		stats, err := c.BroadcastFollowUp(ctx, msg)
+		stats, err := c.PublishFollowUp(ctx, msg)
 		require.NoError(t, err)
 
 		// the lookup runs to completion before any store, so both phases have counts
@@ -635,9 +635,9 @@ func TestCoordinatorBroadcastFollowUpReportsBothPhases(t *testing.T) {
 	})
 }
 
-// TestCoordinatorBroadcastStaticReportsNoLookup checks that a static broadcast, which runs no
+// TestCoordinatorPublishStaticReportsNoLookup checks that a static publish, which runs no
 // lookup, reports zero for the query counts rather than leaving them to be guessed at.
-func TestCoordinatorBroadcastStaticReportsNoLookup(t *testing.T) {
+func TestCoordinatorPublishStaticReportsNoLookup(t *testing.T) {
 	synctest.Test(t, func(t *testing.T) {
 		ctx := kadtest.CtxBubble(t)
 
@@ -649,7 +649,7 @@ func TestCoordinatorBroadcastStaticReportsNoLookup(t *testing.T) {
 		t.Cleanup(func() { require.NoError(t, c.Close()) })
 
 		msg := tiny.Message{Content: "store this", TargetKey: nodes[3].NodeID.Key()}
-		stats, err := c.BroadcastStatic(ctx, msg, []tiny.Node{nodes[1].NodeID, nodes[2].NodeID})
+		stats, err := c.PublishStatic(ctx, msg, []tiny.Node{nodes[1].NodeID, nodes[2].NodeID})
 		require.NoError(t, err)
 
 		require.Zero(t, stats.QueryRequests)

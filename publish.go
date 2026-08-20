@@ -12,11 +12,11 @@ import (
 
 	"github.com/ipfs/go-libdht/kad"
 
-	"github.com/iand/xorbie/brdcst"
 	"github.com/iand/xorbie/coordt"
+	"github.com/iand/xorbie/publish"
 )
 
-type BroadcastConfig[K kad.Key[K], N kad.NodeID[K], M coordt.Message[K, N]] struct {
+type PublishConfig[K kad.Key[K], N kad.NodeID[K], M coordt.Message[K, N]] struct {
 	// Logger is a structured logger that will be used when logging.
 	Logger *slog.Logger
 
@@ -37,41 +37,41 @@ type BroadcastConfig[K kad.Key[K], N kad.NodeID[K], M coordt.Message[K, N]] stru
 	// that is not itself an error as a success.
 	VerifyResponse func(req, resp M) error
 
-	// OptimisticIndividualCertainty is how sure an optimistic broadcast must be that a node it
+	// OptimisticIndividualCertainty is how sure an optimistic publish must be that a node it
 	// stores with during its lookup is really one of the ReplicationFactor closest to the key.
 	OptimisticIndividualCertainty float64
 
 	// OptimisticSetStrictness is the probability that the closest set is in fact further from
-	// the key than an optimistic broadcast's set threshold.
+	// the key than an optimistic publish's set threshold.
 	OptimisticSetStrictness float64
 }
 
 // Validate checks the configuration options and returns an error if any have invalid values.
-func (cfg *BroadcastConfig[K, N, M]) Validate() error {
+func (cfg *PublishConfig[K, N, M]) Validate() error {
 	if cfg.Logger == nil {
 		return &coordt.ConfigurationError{
-			Component: "BroadcastConfig",
+			Component: "PublishConfig",
 			Err:       fmt.Errorf("logger must not be nil"),
 		}
 	}
 
 	if cfg.Tracer == nil {
 		return &coordt.ConfigurationError{
-			Component: "BroadcastConfig",
+			Component: "PublishConfig",
 			Err:       fmt.Errorf("tracer must not be nil"),
 		}
 	}
 
 	if cfg.Meter == nil {
 		return &coordt.ConfigurationError{
-			Component: "BroadcastConfig",
+			Component: "PublishConfig",
 			Err:       fmt.Errorf("meter must not be nil"),
 		}
 	}
 
 	if cfg.QueueCapacity < 1 {
 		return &coordt.ConfigurationError{
-			Component: "BroadcastConfig",
+			Component: "PublishConfig",
 			Err:       fmt.Errorf("queue capacity must be greater than zero"),
 		}
 	}
@@ -79,8 +79,8 @@ func (cfg *BroadcastConfig[K, N, M]) Validate() error {
 	return nil
 }
 
-func DefaultBroadcastConfig[K kad.Key[K], N kad.NodeID[K], M coordt.Message[K, N]]() *BroadcastConfig[K, N, M] {
-	return &BroadcastConfig[K, N, M]{
+func DefaultPublishConfig[K kad.Key[K], N kad.NodeID[K], M coordt.Message[K, N]]() *PublishConfig[K, N, M] {
+	return &PublishConfig[K, N, M]{
 		Logger:                        slog.Default(),
 		Tracer:                        coordt.NoopTracer(),
 		Meter:                         coordt.NoopMeter(),
@@ -90,7 +90,7 @@ func DefaultBroadcastConfig[K kad.Key[K], N kad.NodeID[K], M coordt.Message[K, N
 	}
 }
 
-type PooledBroadcastBehaviour[K kad.Key[K], N kad.NodeID[K], M coordt.Message[K, N]] struct {
+type PublishBehaviour[K kad.Key[K], N kad.NodeID[K], M coordt.Message[K, N]] struct {
 	logger *slog.Logger
 	tracer trace.Tracer
 
@@ -100,17 +100,17 @@ type PooledBroadcastBehaviour[K kad.Key[K], N kad.NodeID[K], M coordt.Message[K,
 	// performMu is held while Perform is executing to ensure sequential execution of work.
 	performMu sync.Mutex
 
-	// pool is the broadcast pool state machine used for managing individual broadcasts.
+	// pool is the publish pool state machine used for managing individual publishes.
 	// it must only be accessed while performMu is held
-	pool coordt.StateMachine[brdcst.PoolEvent, brdcst.PoolState]
+	pool coordt.StateMachine[publish.PoolEvent, publish.PoolState]
 
 	// pendingOutbound is a queue of outbound events.
 	// it must only be accessed while performMu is held
 	pendingOutbound []BehaviourEvent
 
-	// notifiers is a map that keeps track of event notifications for each running broadcast.
+	// notifiers is a map that keeps track of event notifications for each running publish.
 	// it must only be accessed while performMu is held
-	notifiers map[coordt.QueryID]*queryNotifier[K, N, M, *EventBroadcastFinished[K, N]]
+	notifiers map[coordt.QueryID]*queryNotifier[K, N, M, *EventPublishFinished[K, N]]
 
 	// inbound is a bounded queue of inbound events that are awaiting processing
 	inbound *inboundQueue
@@ -121,12 +121,12 @@ type PooledBroadcastBehaviour[K kad.Key[K], N kad.NodeID[K], M coordt.Message[K,
 	// gaugeInboundDepth tracks the number of events waiting in the inbound queue.
 	gaugeInboundDepth metric.Int64ObservableGauge
 
-	// nextDue is the time the broadcast pool last reported it could next make progress
+	// nextDue is the time the publish pool last reported it could next make progress
 	// without an event arriving, or the zero time if it reported none.
 	// it must only be accessed while performMu is held
 	nextDue time.Time
 
-	// pollAgain records that the pool reported a broadcast ending rather than a due time,
+	// pollAgain records that the pool reported a publish ending rather than a due time,
 	// so nextDue is stale until the pool is advanced again.
 	// it must only be accessed while performMu is held
 	pollAgain bool
@@ -137,19 +137,19 @@ type PooledBroadcastBehaviour[K kad.Key[K], N kad.NodeID[K], M coordt.Message[K,
 	readyTimer *readyTimer
 }
 
-func NewPooledBroadcastBehaviour[K kad.Key[K], N kad.NodeID[K], M coordt.Message[K, N]](brdcstPool *brdcst.Pool[K, N, M], cfg *BroadcastConfig[K, N, M]) (*PooledBroadcastBehaviour[K, N, M], error) {
+func NewPublishBehaviour[K kad.Key[K], N kad.NodeID[K], M coordt.Message[K, N]](publishPool *publish.Pool[K, N, M], cfg *PublishConfig[K, N, M]) (*PublishBehaviour[K, N, M], error) {
 	if cfg == nil {
-		cfg = DefaultBroadcastConfig[K, N, M]()
+		cfg = DefaultPublishConfig[K, N, M]()
 	} else if err := cfg.Validate(); err != nil {
 		return nil, err
 	}
 
-	b := &PooledBroadcastBehaviour[K, N, M]{
-		pool:      brdcstPool,
-		notifiers: make(map[coordt.QueryID]*queryNotifier[K, N, M, *EventBroadcastFinished[K, N]]),
+	b := &PublishBehaviour[K, N, M]{
+		pool:      publishPool,
+		notifiers: make(map[coordt.QueryID]*queryNotifier[K, N, M, *EventPublishFinished[K, N]]),
 		inbound:   newInboundQueue(cfg.QueueCapacity),
 		ready:     make(chan struct{}, 1),
-		logger:    cfg.Logger.With("behaviour", "pooledBroadcast"),
+		logger:    cfg.Logger.With("behaviour", "pooledpublish"),
 		tracer:    cfg.Tracer,
 
 		verifyResponse: cfg.VerifyResponse,
@@ -162,23 +162,23 @@ func NewPooledBroadcastBehaviour[K kad.Key[K], N kad.NodeID[K], M coordt.Message
 	var err error
 
 	b.counterInboundDropped, err = cfg.Meter.Int64Counter(
-		"broadcast_inbound_events_dropped",
-		metric.WithDescription("Total number of events dropped because the broadcast behaviour's inbound queue was full"),
+		"publish_inbound_events_dropped",
+		metric.WithDescription("Total number of events dropped because the publish behaviour's inbound queue was full"),
 	)
 	if err != nil {
-		return nil, fmt.Errorf("create broadcast_inbound_events_dropped counter: %w", err)
+		return nil, fmt.Errorf("create publish_inbound_events_dropped counter: %w", err)
 	}
 
 	b.gaugeInboundDepth, err = cfg.Meter.Int64ObservableGauge(
-		"broadcast_inbound_queue_depth",
-		metric.WithDescription("Number of events waiting in the broadcast behaviour's inbound queue"),
+		"publish_inbound_queue_depth",
+		metric.WithDescription("Number of events waiting in the publish behaviour's inbound queue"),
 		metric.WithInt64Callback(func(ctx context.Context, o metric.Int64Observer) error {
 			o.Observe(b.inbound.depth.Load())
 			return nil
 		}),
 	)
 	if err != nil {
-		return nil, fmt.Errorf("create broadcast_inbound_queue_depth gauge: %w", err)
+		return nil, fmt.Errorf("create publish_inbound_queue_depth gauge: %w", err)
 	}
 
 	b.readyTimer = newReadyTimer(b.ready)
@@ -186,12 +186,12 @@ func NewPooledBroadcastBehaviour[K kad.Key[K], N kad.NodeID[K], M coordt.Message
 	return b, nil
 }
 
-func (b *PooledBroadcastBehaviour[K, N, M]) Ready() <-chan struct{} {
+func (b *PublishBehaviour[K, N, M]) Ready() <-chan struct{} {
 	return b.ready
 }
 
-func (b *PooledBroadcastBehaviour[K, N, M]) Notify(ctx context.Context, ev BehaviourEvent) {
-	ctx, span := b.tracer.Start(ctx, "PooledBroadcastBehaviour.Notify")
+func (b *PublishBehaviour[K, N, M]) Notify(ctx context.Context, ev BehaviourEvent) {
+	ctx, span := b.tracer.Start(ctx, "PublishBehaviour.Notify")
 	defer span.End()
 
 	if !b.inbound.enqueue(CtxEvent[BehaviourEvent]{Ctx: ctx, Event: ev}) {
@@ -208,18 +208,18 @@ func (b *PooledBroadcastBehaviour[K, N, M]) Notify(ctx context.Context, ev Behav
 }
 
 // reportDropped tells the caller of a dropped operation that it will not be carried out. An
-// event that starts a broadcast leaves a caller waiting on its monitor for a terminal event
+// event that starts a publish leaves a caller waiting on its monitor for a terminal event
 // that would otherwise never arrive.
-func (b *PooledBroadcastBehaviour[K, N, M]) reportDropped(ctx context.Context, ev BehaviourEvent) {
+func (b *PublishBehaviour[K, N, M]) reportDropped(ctx context.Context, ev BehaviourEvent) {
 	var queryID coordt.QueryID
-	var monitor QueryMonitor[K, N, M, *EventBroadcastFinished[K, N]]
+	var monitor QueryMonitor[K, N, M, *EventPublishFinished[K, N]]
 
 	switch ev := ev.(type) {
-	case *EventStartFollowUpBroadcast[K, N, M]:
+	case *EventStartFollowUpPublish[K, N, M]:
 		queryID, monitor = ev.QueryID, ev.Notify
-	case *EventStartStaticBroadcast[K, N, M]:
+	case *EventStartStaticPublish[K, N, M]:
 		queryID, monitor = ev.QueryID, ev.Notify
-	case *EventStartOptimisticBroadcast[K, N, M]:
+	case *EventStartOptimisticPublish[K, N, M]:
 		queryID, monitor = ev.QueryID, ev.Notify
 	default:
 		return
@@ -229,15 +229,15 @@ func (b *PooledBroadcastBehaviour[K, N, M]) reportDropped(ctx context.Context, e
 		return
 	}
 
-	n := &queryNotifier[K, N, M, *EventBroadcastFinished[K, N]]{monitor: monitor}
-	n.NotifyFinished(ctx, &EventBroadcastFinished[K, N]{QueryID: queryID, Err: ErrEventDropped})
+	n := &queryNotifier[K, N, M, *EventPublishFinished[K, N]]{monitor: monitor}
+	n.NotifyFinished(ctx, &EventPublishFinished[K, N]{QueryID: queryID, Err: ErrEventDropped})
 }
 
-func (b *PooledBroadcastBehaviour[K, N, M]) Perform(ctx context.Context) (out BehaviourEvent, performed bool) {
+func (b *PublishBehaviour[K, N, M]) Perform(ctx context.Context) (out BehaviourEvent, performed bool) {
 	b.performMu.Lock()
 	defer b.performMu.Unlock()
 
-	ctx, span := b.tracer.Start(ctx, "PooledBroadcastBehaviour.Perform")
+	ctx, span := b.tracer.Start(ctx, "PublishBehaviour.Perform")
 	defer span.End()
 
 	defer func() { b.updateReadyStatus(performed) }()
@@ -259,8 +259,8 @@ func (b *PooledBroadcastBehaviour[K, N, M]) Perform(ctx context.Context) (out Be
 		return ev, true
 	}
 
-	// poll the broadcast pool to trigger any timeouts and other scheduled work
-	ev, ok = b.advancePool(ctx, time.Now(), &brdcst.EventPoolPoll{})
+	// poll the publish pool to trigger any timeouts and other scheduled work
+	ev, ok = b.advancePool(ctx, time.Now(), &publish.EventPoolPoll{})
 	if ok {
 		return ev, true
 	}
@@ -269,7 +269,7 @@ func (b *PooledBroadcastBehaviour[K, N, M]) Perform(ctx context.Context) (out Be
 	return b.nextPendingOutbound()
 }
 
-func (b *PooledBroadcastBehaviour[K, N, M]) nextPendingOutbound() (BehaviourEvent, bool) {
+func (b *PublishBehaviour[K, N, M]) nextPendingOutbound() (BehaviourEvent, bool) {
 	if len(b.pendingOutbound) == 0 {
 		return nil, false
 	}
@@ -278,7 +278,7 @@ func (b *PooledBroadcastBehaviour[K, N, M]) nextPendingOutbound() (BehaviourEven
 	return ev, true
 }
 
-func (b *PooledBroadcastBehaviour[K, N, M]) nextPendingInbound() (CtxEvent[BehaviourEvent], bool) {
+func (b *PublishBehaviour[K, N, M]) nextPendingInbound() (CtxEvent[BehaviourEvent], bool) {
 	return b.inbound.dequeue()
 }
 
@@ -287,14 +287,14 @@ func (b *PooledBroadcastBehaviour[K, N, M]) nextPendingInbound() (CtxEvent[Behav
 // event.
 //
 // A Perform that produced an event may be able to produce another one straight
-// away: the broadcast pool dispatches at most one message per advance, so a
-// broadcast with several seed nodes needs several calls to contact them all.
+// away: the publish pool dispatches at most one message per advance, so a
+// publish with several seed nodes needs several calls to contact them all.
 // The event loop only calls Perform in response to a ready signal, so without
-// re-signalling here a broadcast would contact one node and then wait for that
+// re-signalling here a publish would contact one node and then wait for that
 // node's response before contacting the next.
 //
-// A behaviour with no work to do arms a timer for the broadcast's next due time.
-func (b *PooledBroadcastBehaviour[K, N, M]) updateReadyStatus(performed bool) {
+// A behaviour with no work to do arms a timer for the publish's next due time.
+func (b *PublishBehaviour[K, N, M]) updateReadyStatus(performed bool) {
 	if performed || b.pollAgain || len(b.pendingOutbound) != 0 {
 		signalReady(b.ready)
 		return
@@ -308,40 +308,40 @@ func (b *PooledBroadcastBehaviour[K, N, M]) updateReadyStatus(performed bool) {
 	b.readyTimer.Arm(b.nextDue)
 }
 
-func (b *PooledBroadcastBehaviour[K, N, M]) perfomNextInbound(ctx context.Context) (BehaviourEvent, bool) {
-	ctx, span := b.tracer.Start(ctx, "PooledBroadcastBehaviour.perfomNextInbound")
+func (b *PublishBehaviour[K, N, M]) perfomNextInbound(ctx context.Context) (BehaviourEvent, bool) {
+	ctx, span := b.tracer.Start(ctx, "PublishBehaviour.perfomNextInbound")
 	defer span.End()
 	pev, ok := b.nextPendingInbound()
 	if !ok {
 		return nil, false
 	}
 
-	var cmd brdcst.PoolEvent
+	var cmd publish.PoolEvent
 	switch ev := pev.Event.(type) {
-	case *EventStartFollowUpBroadcast[K, N, M]:
-		cmd = &brdcst.EventPoolStartFollowUp[K, N, M]{
+	case *EventStartFollowUpPublish[K, N, M]:
+		cmd = &publish.EventPoolStartFollowUp[K, N, M]{
 			QueryID: ev.QueryID,
 			Target:  ev.Target,
 			Message: ev.Message,
 			Seed:    ev.KnownClosestNodes,
 		}
 		if ev.Notify != nil {
-			b.notifiers[ev.QueryID] = &queryNotifier[K, N, M, *EventBroadcastFinished[K, N]]{monitor: ev.Notify}
+			b.notifiers[ev.QueryID] = &queryNotifier[K, N, M, *EventPublishFinished[K, N]]{monitor: ev.Notify}
 		}
 
-	case *EventStartStaticBroadcast[K, N, M]:
-		cmd = &brdcst.EventPoolStartStatic[K, N, M]{
+	case *EventStartStaticPublish[K, N, M]:
+		cmd = &publish.EventPoolStartStatic[K, N, M]{
 			QueryID: ev.QueryID,
 			Target:  ev.Target,
 			Message: ev.Message,
 			Nodes:   ev.Nodes,
 		}
 		if ev.Notify != nil {
-			b.notifiers[ev.QueryID] = &queryNotifier[K, N, M, *EventBroadcastFinished[K, N]]{monitor: ev.Notify}
+			b.notifiers[ev.QueryID] = &queryNotifier[K, N, M, *EventPublishFinished[K, N]]{monitor: ev.Notify}
 		}
 
-	case *EventStartOptimisticBroadcast[K, N, M]:
-		cmd = &brdcst.EventPoolStartOptimistic[K, N, M]{
+	case *EventStartOptimisticPublish[K, N, M]:
+		cmd = &publish.EventPoolStartOptimistic[K, N, M]{
 			QueryID:     ev.QueryID,
 			Target:      ev.Target,
 			Message:     ev.Message,
@@ -349,7 +349,7 @@ func (b *PooledBroadcastBehaviour[K, N, M]) perfomNextInbound(ctx context.Contex
 			NetworkSize: ev.NetworkSize,
 		}
 		if ev.Notify != nil {
-			b.notifiers[ev.QueryID] = &queryNotifier[K, N, M, *EventBroadcastFinished[K, N]]{monitor: ev.Notify}
+			b.notifiers[ev.QueryID] = &queryNotifier[K, N, M, *EventPublishFinished[K, N]]{monitor: ev.Notify}
 		}
 
 	case *EventGetCloserNodesSuccess[K, N]:
@@ -367,7 +367,7 @@ func (b *PooledBroadcastBehaviour[K, N, M]) perfomNextInbound(ctx context.Contex
 			})
 		}
 
-		cmd = &brdcst.EventPoolGetCloserNodesSuccess[K, N]{
+		cmd = &publish.EventPoolGetCloserNodesSuccess[K, N]{
 			NodeID:      ev.To,
 			QueryID:     ev.QueryID,
 			Target:      ev.Target,
@@ -380,7 +380,7 @@ func (b *PooledBroadcastBehaviour[K, N, M]) perfomNextInbound(ctx context.Contex
 			ev.To,
 		})
 
-		cmd = &brdcst.EventPoolGetCloserNodesFailure[K, N]{
+		cmd = &publish.EventPoolGetCloserNodesFailure[K, N]{
 			NodeID:  ev.To,
 			QueryID: ev.QueryID,
 			Target:  ev.Target,
@@ -402,7 +402,7 @@ func (b *PooledBroadcastBehaviour[K, N, M]) perfomNextInbound(ctx context.Contex
 			})
 		}
 		if err := b.verifyResponse(ev.Request, ev.Response); err != nil {
-			cmd = &brdcst.EventPoolStoreRecordFailure[K, N, M]{
+			cmd = &publish.EventPoolStoreRecordFailure[K, N, M]{
 				QueryID: ev.QueryID,
 				NodeID:  ev.To,
 				Request: ev.Request,
@@ -412,7 +412,7 @@ func (b *PooledBroadcastBehaviour[K, N, M]) perfomNextInbound(ctx context.Contex
 		}
 
 		// TODO: How do we know it's a StoreRecord response?
-		cmd = &brdcst.EventPoolStoreRecordSuccess[K, N, M]{
+		cmd = &publish.EventPoolStoreRecordSuccess[K, N, M]{
 			QueryID:  ev.QueryID,
 			NodeID:   ev.To,
 			Request:  ev.Request,
@@ -426,7 +426,7 @@ func (b *PooledBroadcastBehaviour[K, N, M]) perfomNextInbound(ctx context.Contex
 		})
 
 		// TODO: How do we know it's a StoreRecord response?
-		cmd = &brdcst.EventPoolStoreRecordFailure[K, N, M]{
+		cmd = &publish.EventPoolStoreRecordFailure[K, N, M]{
 			NodeID:  ev.To,
 			QueryID: ev.QueryID,
 			Request: ev.Request,
@@ -434,17 +434,17 @@ func (b *PooledBroadcastBehaviour[K, N, M]) perfomNextInbound(ctx context.Contex
 		}
 
 	case *EventStopQuery:
-		cmd = &brdcst.EventPoolStopBroadcast{
+		cmd = &publish.EventPoolStopPublish{
 			QueryID: ev.QueryID,
 		}
 	}
 
-	// attempt to advance the broadcast pool
+	// attempt to advance the publish pool
 	return b.advancePool(ctx, time.Now(), cmd)
 }
 
-func (b *PooledBroadcastBehaviour[K, N, M]) advancePool(ctx context.Context, now time.Time, ev brdcst.PoolEvent) (out BehaviourEvent, term bool) {
-	ctx, span := b.tracer.Start(ctx, "PooledBroadcastBehaviour.advancePool", trace.WithAttributes(coordt.AttrInEvent(ev)))
+func (b *PublishBehaviour[K, N, M]) advancePool(ctx context.Context, now time.Time, ev publish.PoolEvent) (out BehaviourEvent, term bool) {
+	ctx, span := b.tracer.Start(ctx, "PublishBehaviour.advancePool", trace.WithAttributes(coordt.AttrInEvent(ev)))
 	defer func() {
 		span.SetAttributes(coordt.AttrOutEvent(out))
 		span.End()
@@ -454,33 +454,33 @@ func (b *PooledBroadcastBehaviour[K, N, M]) advancePool(ctx context.Context, now
 
 	pstate := b.pool.Advance(ctx, now, ev)
 	switch st := pstate.(type) {
-	case *brdcst.StatePoolIdle:
+	case *publish.StatePoolIdle:
 		// nothing to do
 		b.nextDue = time.Time{}
-	case *brdcst.StatePoolWaiting:
+	case *publish.StatePoolWaiting:
 		// nothing to do except wait for message responses or timeouts
 		b.nextDue = st.NextDue
-	case *brdcst.StatePoolFindCloser[K, N]:
+	case *publish.StatePoolFindCloser[K, N]:
 		return &EventOutboundGetCloserNodes[K, N]{
 			QueryID: st.QueryID,
 			To:      st.NodeID,
 			Target:  st.Target,
 			Notify:  b,
 		}, true
-	case *brdcst.StatePoolStoreRecord[K, N, M]:
+	case *publish.StatePoolStoreRecord[K, N, M]:
 		return &EventOutboundSendMessage[K, N, M]{
 			QueryID: st.QueryID,
 			To:      st.NodeID,
 			Message: st.Message,
 			Notify:  b,
 		}, true
-	case *brdcst.StatePoolBroadcastFinished[K, N]:
-		// the state carries no due time and the pool has removed the broadcast, so the
-		// pool must be advanced again to report when the remaining broadcasts are next due
+	case *publish.StatePoolPublishFinished[K, N]:
+		// the state carries no due time and the pool has removed the publish, so the
+		// pool must be advanced again to report when the remaining publishes are next due
 		b.pollAgain = true
 		waiter, ok := b.notifiers[st.QueryID]
 		if ok {
-			waiter.NotifyFinished(ctx, &EventBroadcastFinished[K, N]{
+			waiter.NotifyFinished(ctx, &EventPublishFinished[K, N]{
 				QueryID:    st.QueryID,
 				Contacted:  st.Contacted,
 				Errors:     st.Errors,
@@ -493,32 +493,32 @@ func (b *PooledBroadcastBehaviour[K, N, M]) advancePool(ctx context.Context, now
 	return nil, false
 }
 
-// A BroadcastWaiter implements [QueryMonitor] for broadcasts
-type BroadcastWaiter[K kad.Key[K], N kad.NodeID[K], M coordt.Message[K, N]] struct {
+// A PublishWaiter implements [QueryMonitor] for publishes
+type PublishWaiter[K kad.Key[K], N kad.NodeID[K], M coordt.Message[K, N]] struct {
 	progressed chan CtxEvent[*EventQueryProgressed[K, N, M]]
-	finished   chan CtxEvent[*EventBroadcastFinished[K, N]]
+	finished   chan CtxEvent[*EventPublishFinished[K, N]]
 }
 
-func NewBroadcastWaiter[K kad.Key[K], N kad.NodeID[K], M coordt.Message[K, N]](n int) *BroadcastWaiter[K, N, M] {
-	w := &BroadcastWaiter[K, N, M]{
+func NewPublishWaiter[K kad.Key[K], N kad.NodeID[K], M coordt.Message[K, N]](n int) *PublishWaiter[K, N, M] {
+	w := &PublishWaiter[K, N, M]{
 		progressed: make(chan CtxEvent[*EventQueryProgressed[K, N, M]], n),
-		finished:   make(chan CtxEvent[*EventBroadcastFinished[K, N]], 1),
+		finished:   make(chan CtxEvent[*EventPublishFinished[K, N]], 1),
 	}
 	return w
 }
 
-func (w *BroadcastWaiter[K, N, M]) Progressed() <-chan CtxEvent[*EventQueryProgressed[K, N, M]] {
+func (w *PublishWaiter[K, N, M]) Progressed() <-chan CtxEvent[*EventQueryProgressed[K, N, M]] {
 	return w.progressed
 }
 
-func (w *BroadcastWaiter[K, N, M]) Finished() <-chan CtxEvent[*EventBroadcastFinished[K, N]] {
+func (w *PublishWaiter[K, N, M]) Finished() <-chan CtxEvent[*EventPublishFinished[K, N]] {
 	return w.finished
 }
 
-func (w *BroadcastWaiter[K, N, M]) NotifyProgressed() chan<- CtxEvent[*EventQueryProgressed[K, N, M]] {
+func (w *PublishWaiter[K, N, M]) NotifyProgressed() chan<- CtxEvent[*EventQueryProgressed[K, N, M]] {
 	return w.progressed
 }
 
-func (w *BroadcastWaiter[K, N, M]) NotifyFinished() chan<- CtxEvent[*EventBroadcastFinished[K, N]] {
+func (w *PublishWaiter[K, N, M]) NotifyFinished() chan<- CtxEvent[*EventPublishFinished[K, N]] {
 	return w.finished
 }

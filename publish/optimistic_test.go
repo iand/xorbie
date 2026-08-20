@@ -1,4 +1,4 @@
-package brdcst
+package publish
 
 import (
 	"context"
@@ -154,26 +154,26 @@ func TestOptimisticStoresBeforeTheWalkEnds(t *testing.T) {
 	sm := newOptimisticTest(t, 64, 2, far)
 
 	// the walk begins with the seed, which is too far away to store with
-	state := sm.Advance(ctx, now, &EventBroadcastStart[tiny.Key, tiny.Node]{
+	state := sm.Advance(ctx, now, &EventPublishStart[tiny.Key, tiny.Node]{
 		Target: target,
 	})
-	fcState, ok := state.(*StateBroadcastFindCloser[tiny.Key, tiny.Node])
+	fcState, ok := state.(*StatePublishFindCloser[tiny.Key, tiny.Node])
 	require.True(t, ok, "state is %T", state)
 	require.Equal(t, far, fcState.NodeID)
 
 	// the seed knows of a node inside the individual threshold, which the walk moves on to
-	state = sm.Advance(ctx, now, &EventBroadcastNodeResponse[tiny.Key, tiny.Node]{
+	state = sm.Advance(ctx, now, &EventPublishNodeResponse[tiny.Key, tiny.Node]{
 		NodeID:      far,
 		CloserNodes: []tiny.Node{near},
 	})
-	fcState, ok = state.(*StateBroadcastFindCloser[tiny.Key, tiny.Node])
+	fcState, ok = state.(*StatePublishFindCloser[tiny.Key, tiny.Node])
 	require.True(t, ok, "state is %T", state)
 	require.Equal(t, near, fcState.NodeID)
 
 	// with the walk waiting on that node, the record is stored with it rather than waiting for
 	// the walk to settle
-	state = sm.Advance(ctx, now, &EventBroadcastPoll{})
-	srState, ok := state.(*StateBroadcastStoreRecord[tiny.Key, tiny.Node, tiny.Message])
+	state = sm.Advance(ctx, now, &EventPublishPoll{})
+	srState, ok := state.(*StatePublishStoreRecord[tiny.Key, tiny.Node, tiny.Message])
 	require.True(t, ok, "state is %T", state)
 	require.Equal(t, near, srState.NodeID)
 	require.Equal(t, "store this", srState.Message.Content)
@@ -194,29 +194,29 @@ func TestOptimisticDoesNotStoreOutsideTheIndividualThreshold(t *testing.T) {
 
 	sm := newOptimisticTest(t, 64, 2, seed)
 
-	state := sm.Advance(ctx, now, &EventBroadcastStart[tiny.Key, tiny.Node]{
+	state := sm.Advance(ctx, now, &EventPublishStart[tiny.Key, tiny.Node]{
 		Target: target,
 	})
-	require.IsType(t, &StateBroadcastFindCloser[tiny.Key, tiny.Node]{}, state)
+	require.IsType(t, &StatePublishFindCloser[tiny.Key, tiny.Node]{}, state)
 
 	// the node the seed reports is nearer the target but still outside the individual
 	// threshold, and the two known nodes are too far apart to satisfy the set threshold, so the
 	// walk moves on to it
-	state = sm.Advance(ctx, now, &EventBroadcastNodeResponse[tiny.Key, tiny.Node]{
+	state = sm.Advance(ctx, now, &EventPublishNodeResponse[tiny.Key, tiny.Node]{
 		NodeID:      seed,
 		CloserNodes: []tiny.Node{outside},
 	})
-	fcState, ok := state.(*StateBroadcastFindCloser[tiny.Key, tiny.Node])
+	fcState, ok := state.(*StatePublishFindCloser[tiny.Key, tiny.Node])
 	require.True(t, ok, "state is %T", state)
 	require.Equal(t, outside, fcState.NodeID)
 
 	// with the walk waiting on that node there is nothing to store, so the machine waits
-	state = sm.Advance(ctx, now, &EventBroadcastPoll{})
-	require.IsType(t, &StateBroadcastWaiting{}, state)
+	state = sm.Advance(ctx, now, &EventPublishPoll{})
+	require.IsType(t, &StatePublishWaiting{}, state)
 	require.True(t, sm.walking)
 }
 
-// TestOptimisticReportsWhenTheWalkIsDue checks that an optimistic broadcast waiting on its walk
+// TestOptimisticReportsWhenTheWalkIsDue checks that an optimistic publish waiting on its walk
 // reports the time at which the walk could next make progress, so that a request a node does not
 // answer is timed out rather than left outstanding indefinitely.
 func TestOptimisticReportsWhenTheWalkIsDue(t *testing.T) {
@@ -228,15 +228,15 @@ func TestOptimisticReportsWhenTheWalkIsDue(t *testing.T) {
 
 	sm := newOptimisticTest(t, 64, 2, seed)
 
-	state := sm.Advance(ctx, now, &EventBroadcastStart[tiny.Key, tiny.Node]{
+	state := sm.Advance(ctx, now, &EventPublishStart[tiny.Key, tiny.Node]{
 		Target: target,
 	})
-	require.IsType(t, &StateBroadcastFindCloser[tiny.Key, tiny.Node]{}, state)
+	require.IsType(t, &StatePublishFindCloser[tiny.Key, tiny.Node]{}, state)
 
 	// the walk holds a request out and there is nothing to store, so the only progress left is
 	// that request timing out
-	state = sm.Advance(ctx, now, &EventBroadcastPoll{})
-	wState, ok := state.(*StateBroadcastWaiting)
+	state = sm.Advance(ctx, now, &EventPublishPoll{})
+	wState, ok := state.(*StatePublishWaiting)
 	require.True(t, ok, "state is %T", state)
 	require.Equal(t, testQueryID, wState.QueryID)
 	require.Equal(t, now.Add(query.DefaultPoolConfig().RequestTimeout), wState.NextDue)
@@ -258,38 +258,38 @@ func TestOptimisticAbandonsTheWalkOnTheSetThreshold(t *testing.T) {
 
 	sm := newOptimisticTest(t, 64, 2, seed)
 
-	state := sm.Advance(ctx, now, &EventBroadcastStart[tiny.Key, tiny.Node]{
+	state := sm.Advance(ctx, now, &EventPublishStart[tiny.Key, tiny.Node]{
 		Target: target,
 	})
-	require.IsType(t, &StateBroadcastFindCloser[tiny.Key, tiny.Node]{}, state)
+	require.IsType(t, &StatePublishFindCloser[tiny.Key, tiny.Node]{}, state)
 
 	// the seed answers with two nodes that between them satisfy the set threshold, so the walk
 	// is abandoned and the record is stored with them instead of being carried further
-	state = sm.Advance(ctx, now, &EventBroadcastNodeResponse[tiny.Key, tiny.Node]{
+	state = sm.Advance(ctx, now, &EventPublishNodeResponse[tiny.Key, tiny.Node]{
 		NodeID:      seed,
 		CloserNodes: []tiny.Node{a, b},
 	})
 	require.False(t, sm.walking)
 
-	srState, ok := state.(*StateBroadcastStoreRecord[tiny.Key, tiny.Node, tiny.Message])
+	srState, ok := state.(*StatePublishStoreRecord[tiny.Key, tiny.Node, tiny.Message])
 	require.True(t, ok, "state is %T", state)
 	first := srState.NodeID
 
-	state = sm.Advance(ctx, now, &EventBroadcastStoreRecordSuccess[tiny.Key, tiny.Node, tiny.Message]{
+	state = sm.Advance(ctx, now, &EventPublishStoreRecordSuccess[tiny.Key, tiny.Node, tiny.Message]{
 		NodeID: first,
 	})
-	srState, ok = state.(*StateBroadcastStoreRecord[tiny.Key, tiny.Node, tiny.Message])
+	srState, ok = state.(*StatePublishStoreRecord[tiny.Key, tiny.Node, tiny.Message])
 	require.True(t, ok, "state is %T", state)
 	second := srState.NodeID
 
 	require.ElementsMatch(t, []tiny.Node{a, b}, []tiny.Node{first, second})
 
-	// with both stored the broadcast is finished, reporting the nodes it stored with and no
+	// with both stored the publish is finished, reporting the nodes it stored with and no
 	// errors
-	state = sm.Advance(ctx, now, &EventBroadcastStoreRecordSuccess[tiny.Key, tiny.Node, tiny.Message]{
+	state = sm.Advance(ctx, now, &EventPublishStoreRecordSuccess[tiny.Key, tiny.Node, tiny.Message]{
 		NodeID: second,
 	})
-	fState, ok := state.(*StateBroadcastFinished[tiny.Key, tiny.Node])
+	fState, ok := state.(*StatePublishFinished[tiny.Key, tiny.Node])
 	require.True(t, ok, "state is %T", state)
 	require.ElementsMatch(t, []tiny.Node{a, b}, fState.Contacted)
 	require.Empty(t, fState.Errors)
@@ -308,22 +308,22 @@ func TestOptimisticWalksOnWhileTooFewNodesAreKnown(t *testing.T) {
 
 	sm := newOptimisticTest(t, 64, 4, seed)
 
-	state := sm.Advance(ctx, now, &EventBroadcastStart[tiny.Key, tiny.Node]{
+	state := sm.Advance(ctx, now, &EventPublishStart[tiny.Key, tiny.Node]{
 		Target: target,
 	})
-	require.IsType(t, &StateBroadcastFindCloser[tiny.Key, tiny.Node]{}, state)
+	require.IsType(t, &StatePublishFindCloser[tiny.Key, tiny.Node]{}, state)
 
 	// two nodes are known and the replication factor is four, so however close they are the
 	// walk carries on
-	state = sm.Advance(ctx, now, &EventBroadcastNodeResponse[tiny.Key, tiny.Node]{
+	state = sm.Advance(ctx, now, &EventPublishNodeResponse[tiny.Key, tiny.Node]{
 		NodeID:      seed,
 		CloserNodes: []tiny.Node{a},
 	})
 	require.True(t, sm.walking)
-	require.IsType(t, &StateBroadcastFindCloser[tiny.Key, tiny.Node]{}, state)
+	require.IsType(t, &StatePublishFindCloser[tiny.Key, tiny.Node]{}, state)
 }
 
-// TestOptimisticStopAbandonsOutstandingWork checks that stopping a broadcast records the nodes it
+// TestOptimisticStopAbandonsOutstandingWork checks that stopping a publish records the nodes it
 // had not finished with as failures.
 func TestOptimisticStopAbandonsOutstandingWork(t *testing.T) {
 	ctx := context.Background()
@@ -335,23 +335,23 @@ func TestOptimisticStopAbandonsOutstandingWork(t *testing.T) {
 
 	sm := newOptimisticTest(t, 64, 2, seed)
 
-	state := sm.Advance(ctx, now, &EventBroadcastStart[tiny.Key, tiny.Node]{
+	state := sm.Advance(ctx, now, &EventPublishStart[tiny.Key, tiny.Node]{
 		Target: target,
 	})
-	require.IsType(t, &StateBroadcastFindCloser[tiny.Key, tiny.Node]{}, state)
+	require.IsType(t, &StatePublishFindCloser[tiny.Key, tiny.Node]{}, state)
 
-	state = sm.Advance(ctx, now, &EventBroadcastNodeResponse[tiny.Key, tiny.Node]{
+	state = sm.Advance(ctx, now, &EventPublishNodeResponse[tiny.Key, tiny.Node]{
 		NodeID:      seed,
 		CloserNodes: []tiny.Node{near},
 	})
-	require.IsType(t, &StateBroadcastFindCloser[tiny.Key, tiny.Node]{}, state)
+	require.IsType(t, &StatePublishFindCloser[tiny.Key, tiny.Node]{}, state)
 
-	// the store for the nearby node is outstanding when the broadcast is stopped
-	state = sm.Advance(ctx, now, &EventBroadcastPoll{})
-	require.IsType(t, &StateBroadcastStoreRecord[tiny.Key, tiny.Node, tiny.Message]{}, state)
+	// the store for the nearby node is outstanding when the publish is stopped
+	state = sm.Advance(ctx, now, &EventPublishPoll{})
+	require.IsType(t, &StatePublishStoreRecord[tiny.Key, tiny.Node, tiny.Message]{}, state)
 
-	state = sm.Advance(ctx, now, &EventBroadcastStop{})
-	fState, ok := state.(*StateBroadcastFinished[tiny.Key, tiny.Node])
+	state = sm.Advance(ctx, now, &EventPublishStop{})
+	fState, ok := state.(*StatePublishFinished[tiny.Key, tiny.Node])
 	require.True(t, ok, "state is %T", state)
 	require.Contains(t, fState.Errors, near.String())
 
@@ -362,7 +362,7 @@ func TestOptimisticStopAbandonsOutstandingWork(t *testing.T) {
 	}
 }
 
-// TestOptimisticStopWhileWalkingFinishes checks that stopping a broadcast whose walk is still
+// TestOptimisticStopWhileWalkingFinishes checks that stopping a publish whose walk is still
 // running ends the operation, rather than leaving it waiting on a walk that will never be
 // advanced again.
 func TestOptimisticStopWhileWalkingFinishes(t *testing.T) {
@@ -373,26 +373,26 @@ func TestOptimisticStopWhileWalkingFinishes(t *testing.T) {
 
 	sm := newOptimisticTest(t, 64, 2, seed)
 
-	state := sm.Advance(ctx, now, &EventBroadcastStart[tiny.Key, tiny.Node]{
+	state := sm.Advance(ctx, now, &EventPublishStart[tiny.Key, tiny.Node]{
 		Target: tiny.Key(0),
 	})
-	require.IsType(t, &StateBroadcastFindCloser[tiny.Key, tiny.Node]{}, state)
+	require.IsType(t, &StatePublishFindCloser[tiny.Key, tiny.Node]{}, state)
 	require.True(t, sm.walking)
 
 	// nothing has been stored and the walk is mid-flight, so the operation finishes with
 	// nothing contacted rather than reporting that it is waiting
-	state = sm.Advance(ctx, now, &EventBroadcastStop{})
-	fState, ok := state.(*StateBroadcastFinished[tiny.Key, tiny.Node])
+	state = sm.Advance(ctx, now, &EventPublishStop{})
+	fState, ok := state.(*StatePublishFinished[tiny.Key, tiny.Node])
 	require.True(t, ok, "state is %T", state)
 	require.Empty(t, fState.Contacted)
 	require.Empty(t, fState.Errors)
 
 	// and it reports the same on every later advance
-	state = sm.Advance(ctx, now, &EventBroadcastPoll{})
-	require.IsType(t, &StateBroadcastFinished[tiny.Key, tiny.Node]{}, state)
+	state = sm.Advance(ctx, now, &EventPublishPoll{})
+	require.IsType(t, &StatePublishFinished[tiny.Key, tiny.Node]{}, state)
 }
 
-// nodeKeys returns the string form of each node, which is how a finished broadcast keys the
+// nodeKeys returns the string form of each node, which is how a finished publish keys the
 // errors it reports.
 func nodeKeys(nodes []tiny.Node) []string {
 	keys := make([]string, 0, len(nodes))

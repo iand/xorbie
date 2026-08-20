@@ -103,7 +103,7 @@ func TestCoordinatorReportsThroughInjectedProvider(t *testing.T) {
 	for _, name := range []string{
 		"query_inbound_queue_depth",
 		"routing_inbound_queue_depth",
-		"broadcast_inbound_queue_depth",
+		"publish_inbound_queue_depth",
 		"network_requests_in_flight",
 		"network_node_handlers",
 	} {

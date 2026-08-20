@@ -8,7 +8,7 @@ import (
 	"github.com/ipfs/go-libdht/kad"
 )
 
-// TODO: rename to something like OperationID. This type isn't only used to identify queries but also other operations like broadcasts.
+// TODO: rename to something like OperationID. This type isn't only used to identify queries but also other operations like publishes.
 type QueryID string
 
 const InvalidQueryID QueryID = ""
@@ -51,12 +51,12 @@ type QueryStats struct {
 	Exhausted bool      // Exhausted is true if the query ended after visiting every node it could.
 }
 
-// BroadcastStats holds the counts and timings of one broadcast operation. The Query counts cover
-// the lookup that finds the nodes to store the record with, and are zero for a broadcast that runs
+// PublishStats holds the counts and timings of one publish operation. The Query counts cover
+// the lookup that finds the nodes to store the record with, and are zero for a publish that runs
 // no lookup. The Store counts cover the requests that carry the record.
-type BroadcastStats struct {
-	Start time.Time // Start is the time the broadcast began executing.
-	End   time.Time // End is the time the broadcast stopped executing.
+type PublishStats struct {
+	Start time.Time // Start is the time the publish began executing.
+	End   time.Time // End is the time the publish stopped executing.
 
 	QueryRequests int // QueryRequests is a count of the number of requests made by the lookup.
 	QuerySuccess  int // QuerySuccess is a count of the number of nodes the lookup successfully contacted.
