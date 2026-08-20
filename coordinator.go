@@ -191,7 +191,6 @@ func NewCoordinator[K kad.Key[K], N kad.NodeID[K], M coordt.Message[K, N]](
 	self N,
 	rtr coordt.Router[K, N, M],
 	rt routing.RoutingTableCpl[K, N],
-	cplFn routing.NodeIDForCplFunc[K, N],
 	cfg *CoordinatorConfig[K, N, M],
 ) (*Coordinator[K, N, M], error) {
 	if cfg == nil {
@@ -248,7 +247,7 @@ func NewCoordinator[K kad.Key[K], N kad.NodeID[K], M coordt.Message[K, N]](
 		return nil, fmt.Errorf("query behaviour: %w", err)
 	}
 
-	routingBehaviour, err := NewRoutingBehaviour(self, rt, cplFn, &cfg.Routing)
+	routingBehaviour, err := NewRoutingBehaviour(self, rt, &cfg.Routing)
 	if err != nil {
 		return nil, fmt.Errorf("routing behaviour: %w", err)
 	}

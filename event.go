@@ -2,6 +2,7 @@ package xorbie
 
 import (
 	"github.com/ipfs/go-libdht/kad"
+	"github.com/ipfs/go-libdht/kad/key/bitstr"
 
 	"github.com/iand/xorbie/coordt"
 	"github.com/iand/xorbie/query"
@@ -274,6 +275,16 @@ type EventRoutingRemoved[K kad.Key[K], N kad.NodeID[K]] struct {
 
 func (*EventRoutingRemoved[K, N]) behaviourEvent()      {}
 func (*EventRoutingRemoved[K, N]) routingNotification() {}
+
+// EventRegionSurveyed is emitted by the coordinator when a survey of a region has finished. It
+// carries the region's prefix and the nodes found inside it.
+type EventRegionSurveyed[K kad.Key[K], N kad.NodeID[K]] struct {
+	Prefix bitstr.Key // the prefix of the region that was surveyed
+	Nodes  []N        // the nodes found inside the region
+}
+
+func (*EventRegionSurveyed[K, N]) behaviourEvent()      {}
+func (*EventRegionSurveyed[K, N]) routingNotification() {}
 
 // EventBootstrapFinished is emitted by the coordinator when a bootstrap has finished, either through
 // running to completion or by being canceled.

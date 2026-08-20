@@ -7,6 +7,7 @@ import (
 	"testing/synctest"
 	"time"
 
+	"github.com/ipfs/go-libdht/kad/key/bitstr"
 	"github.com/stretchr/testify/require"
 
 	"github.com/iand/xorbie/coordt"
@@ -34,6 +35,11 @@ func idleProbe() *RecordingSM[routing.ProbeEvent, routing.ProbeState] {
 // idleExplore returns an explore state machine that is always idle
 func idleExplore() *RecordingSM[routing.ExploreEvent, routing.ExploreState] {
 	return NewRecordingSM[routing.ExploreEvent, routing.ExploreState](&routing.StateExploreIdle{})
+}
+
+// idleSurvey returns a survey state machine that is always idle
+func idleSurvey() *RecordingSM[routing.SurveyEvent, routing.SurveyState] {
+	return NewRecordingSM[routing.SurveyEvent, routing.SurveyState](&routing.StateSurveyIdle{})
 }
 
 func TestRoutingConfigValidate(t *testing.T) {
@@ -130,6 +136,8 @@ func TestRoutingConfigValidate(t *testing.T) {
 
 	t.Run("explore timeout positive", func(t *testing.T) {
 		cfg := DefaultRoutingConfig[tiny.Key, tiny.Node]()
+		cfg.EnableExplore = true
+		cfg.ExploreCplFunc = tiny.NodeWithCpl
 
 		cfg.ExploreTimeout = 0
 		require.Error(t, cfg.Validate())
@@ -139,6 +147,8 @@ func TestRoutingConfigValidate(t *testing.T) {
 
 	t.Run("explore request concurrency positive", func(t *testing.T) {
 		cfg := DefaultRoutingConfig[tiny.Key, tiny.Node]()
+		cfg.EnableExplore = true
+		cfg.ExploreCplFunc = tiny.NodeWithCpl
 
 		cfg.ExploreRequestConcurrency = 0
 		require.Error(t, cfg.Validate())
@@ -148,6 +158,8 @@ func TestRoutingConfigValidate(t *testing.T) {
 
 	t.Run("explore request timeout positive", func(t *testing.T) {
 		cfg := DefaultRoutingConfig[tiny.Key, tiny.Node]()
+		cfg.EnableExplore = true
+		cfg.ExploreCplFunc = tiny.NodeWithCpl
 
 		cfg.ExploreRequestTimeout = 0
 		require.Error(t, cfg.Validate())
@@ -157,6 +169,8 @@ func TestRoutingConfigValidate(t *testing.T) {
 
 	t.Run("explore maximum cpl positive", func(t *testing.T) {
 		cfg := DefaultRoutingConfig[tiny.Key, tiny.Node]()
+		cfg.EnableExplore = true
+		cfg.ExploreCplFunc = tiny.NodeWithCpl
 
 		cfg.ExploreMaximumCpl = 0
 		require.Error(t, cfg.Validate())
@@ -166,6 +180,8 @@ func TestRoutingConfigValidate(t *testing.T) {
 
 	t.Run("explore maximum 15 or less", func(t *testing.T) {
 		cfg := DefaultRoutingConfig[tiny.Key, tiny.Node]()
+		cfg.EnableExplore = true
+		cfg.ExploreCplFunc = tiny.NodeWithCpl
 
 		cfg.ExploreMaximumCpl = 16
 		require.Error(t, cfg.Validate())
@@ -173,6 +189,8 @@ func TestRoutingConfigValidate(t *testing.T) {
 
 	t.Run("explore interval positive", func(t *testing.T) {
 		cfg := DefaultRoutingConfig[tiny.Key, tiny.Node]()
+		cfg.EnableExplore = true
+		cfg.ExploreCplFunc = tiny.NodeWithCpl
 
 		cfg.ExploreInterval = 0
 		require.Error(t, cfg.Validate())
@@ -182,6 +200,8 @@ func TestRoutingConfigValidate(t *testing.T) {
 
 	t.Run("explore interval multiplier at least 1", func(t *testing.T) {
 		cfg := DefaultRoutingConfig[tiny.Key, tiny.Node]()
+		cfg.EnableExplore = true
+		cfg.ExploreCplFunc = tiny.NodeWithCpl
 
 		cfg.ExploreIntervalMultiplier = 0
 		require.Error(t, cfg.Validate())
@@ -193,12 +213,101 @@ func TestRoutingConfigValidate(t *testing.T) {
 
 	t.Run("explore interval between 0 and 0.05", func(t *testing.T) {
 		cfg := DefaultRoutingConfig[tiny.Key, tiny.Node]()
+		cfg.EnableExplore = true
+		cfg.ExploreCplFunc = tiny.NodeWithCpl
 
 		cfg.ExploreIntervalJitter = 0.1
 		require.Error(t, cfg.Validate())
 		cfg.ExploreIntervalJitter = 0.05001
 		require.Error(t, cfg.Validate())
 		cfg.ExploreIntervalJitter = -0.1
+		require.Error(t, cfg.Validate())
+	})
+
+	t.Run("explore fields unchecked when explore disabled", func(t *testing.T) {
+		cfg := DefaultRoutingConfig[tiny.Key, tiny.Node]()
+
+		// with the explore disabled the explore fields are not enforced
+		cfg.ExploreTimeout = 0
+		cfg.ExploreMaximumCpl = 0
+		require.NoError(t, cfg.Validate())
+	})
+
+	t.Run("explore requires cpl function when enabled", func(t *testing.T) {
+		cfg := DefaultRoutingConfig[tiny.Key, tiny.Node]()
+		cfg.EnableExplore = true
+
+		require.Error(t, cfg.Validate())
+	})
+
+	t.Run("survey fields unchecked when survey disabled", func(t *testing.T) {
+		cfg := DefaultRoutingConfig[tiny.Key, tiny.Node]()
+
+		// with the survey disabled the survey fields are not enforced
+		cfg.SurveyInterval = 0
+		cfg.SurveyRequestConcurrency = 0
+		require.NoError(t, cfg.Validate())
+	})
+
+	t.Run("survey requires target function when enabled", func(t *testing.T) {
+		cfg := DefaultRoutingConfig[tiny.Key, tiny.Node]()
+		cfg.EnableSurvey = true
+
+		require.Error(t, cfg.Validate())
+	})
+
+	t.Run("survey interval positive when enabled", func(t *testing.T) {
+		cfg := DefaultRoutingConfig[tiny.Key, tiny.Node]()
+		cfg.EnableSurvey = true
+		cfg.SurveyTargetFunc = stubTargetFn
+
+		cfg.SurveyInterval = 0
+		require.Error(t, cfg.Validate())
+		cfg.SurveyInterval = -1
+		require.Error(t, cfg.Validate())
+	})
+
+	t.Run("survey region timeout positive when enabled", func(t *testing.T) {
+		cfg := DefaultRoutingConfig[tiny.Key, tiny.Node]()
+		cfg.EnableSurvey = true
+		cfg.SurveyTargetFunc = stubTargetFn
+
+		cfg.SurveyRegionTimeout = 0
+		require.Error(t, cfg.Validate())
+		cfg.SurveyRegionTimeout = -1
+		require.Error(t, cfg.Validate())
+	})
+
+	t.Run("survey request concurrency positive when enabled", func(t *testing.T) {
+		cfg := DefaultRoutingConfig[tiny.Key, tiny.Node]()
+		cfg.EnableSurvey = true
+		cfg.SurveyTargetFunc = stubTargetFn
+
+		cfg.SurveyRequestConcurrency = 0
+		require.Error(t, cfg.Validate())
+		cfg.SurveyRequestConcurrency = -1
+		require.Error(t, cfg.Validate())
+	})
+
+	t.Run("survey request timeout positive when enabled", func(t *testing.T) {
+		cfg := DefaultRoutingConfig[tiny.Key, tiny.Node]()
+		cfg.EnableSurvey = true
+		cfg.SurveyTargetFunc = stubTargetFn
+
+		cfg.SurveyRequestTimeout = 0
+		require.Error(t, cfg.Validate())
+		cfg.SurveyRequestTimeout = -1
+		require.Error(t, cfg.Validate())
+	})
+
+	t.Run("survey walk-in bound positive when enabled", func(t *testing.T) {
+		cfg := DefaultRoutingConfig[tiny.Key, tiny.Node]()
+		cfg.EnableSurvey = true
+		cfg.SurveyTargetFunc = stubTargetFn
+
+		cfg.SurveyWalkInBound = 0
+		require.Error(t, cfg.Validate())
+		cfg.SurveyWalkInBound = -1
 		require.Error(t, cfg.Validate())
 	})
 }
@@ -215,7 +324,7 @@ func TestRoutingStartBootstrapSendsEvent(t *testing.T) {
 	bootstrap := NewRecordingSM[routing.BootstrapEvent, routing.BootstrapState](&routing.StateBootstrapIdle{})
 
 	cfg := DefaultRoutingConfig[tiny.Key, tiny.Node]()
-	routingBehaviour, err := ComposeRoutingBehaviour(self, bootstrap, idleInclude(), idleProbe(), idleExplore(), cfg)
+	routingBehaviour, err := ComposeRoutingBehaviour(self, bootstrap, idleInclude(), idleProbe(), idleExplore(), nil, cfg)
 	require.NoError(t, err)
 
 	ev := &EventStartBootstrap[tiny.Key, tiny.Node]{
@@ -255,7 +364,7 @@ func TestRoutingBootstrapRequestConcurrency(t *testing.T) {
 	require.NoError(t, err)
 
 	cfg := DefaultRoutingConfig[tiny.Key, tiny.Node]()
-	routingBehaviour, err := ComposeRoutingBehaviour(self, bootstrap, idleInclude(), idleProbe(), idleExplore(), cfg)
+	routingBehaviour, err := ComposeRoutingBehaviour(self, bootstrap, idleInclude(), idleProbe(), idleExplore(), nil, cfg)
 	require.NoError(t, err)
 
 	routingBehaviour.Notify(ctx, &EventStartBootstrap[tiny.Key, tiny.Node]{
@@ -292,7 +401,7 @@ func TestRoutingBootstrapGetClosestNodesSuccess(t *testing.T) {
 	bootstrap := NewRecordingSM[routing.BootstrapEvent, routing.BootstrapState](&routing.StateBootstrapIdle{})
 
 	cfg := DefaultRoutingConfig[tiny.Key, tiny.Node]()
-	routingBehaviour, err := ComposeRoutingBehaviour(self, bootstrap, idleInclude(), idleProbe(), idleExplore(), cfg)
+	routingBehaviour, err := ComposeRoutingBehaviour(self, bootstrap, idleInclude(), idleProbe(), idleExplore(), nil, cfg)
 	require.NoError(t, err)
 
 	ev := &EventGetCloserNodesSuccess[tiny.Key, tiny.Node]{
@@ -325,7 +434,7 @@ func TestRoutingBootstrapGetClosestNodesFailure(t *testing.T) {
 	bootstrap := NewRecordingSM[routing.BootstrapEvent, routing.BootstrapState](&routing.StateBootstrapIdle{})
 
 	cfg := DefaultRoutingConfig[tiny.Key, tiny.Node]()
-	routingBehaviour, err := ComposeRoutingBehaviour(self, bootstrap, idleInclude(), idleProbe(), idleExplore(), cfg)
+	routingBehaviour, err := ComposeRoutingBehaviour(self, bootstrap, idleInclude(), idleProbe(), idleExplore(), nil, cfg)
 	require.NoError(t, err)
 
 	failure := errors.New("failed")
@@ -359,7 +468,7 @@ func TestRoutingAddNodeInfoSendsEvent(t *testing.T) {
 	include := NewRecordingSM[routing.IncludeEvent, routing.IncludeState](&routing.StateIncludeIdle{})
 
 	cfg := DefaultRoutingConfig[tiny.Key, tiny.Node]()
-	routingBehaviour, err := ComposeRoutingBehaviour(self, idleBootstrap(), include, idleProbe(), idleExplore(), cfg)
+	routingBehaviour, err := ComposeRoutingBehaviour(self, idleBootstrap(), include, idleProbe(), idleExplore(), nil, cfg)
 	require.NoError(t, err)
 
 	ev := &EventAddNode[tiny.Key, tiny.Node]{
@@ -388,7 +497,7 @@ func TestRoutingIncludeGetClosestNodesSuccess(t *testing.T) {
 	include := NewRecordingSM[routing.IncludeEvent, routing.IncludeState](&routing.StateIncludeIdle{})
 
 	cfg := DefaultRoutingConfig[tiny.Key, tiny.Node]()
-	routingBehaviour, err := ComposeRoutingBehaviour(self, idleBootstrap(), include, idleProbe(), idleExplore(), cfg)
+	routingBehaviour, err := ComposeRoutingBehaviour(self, idleBootstrap(), include, idleProbe(), idleExplore(), nil, cfg)
 	require.NoError(t, err)
 
 	ev := &EventGetCloserNodesSuccess[tiny.Key, tiny.Node]{
@@ -420,7 +529,7 @@ func TestRoutingIncludeGetClosestNodesFailure(t *testing.T) {
 	include := NewRecordingSM[routing.IncludeEvent, routing.IncludeState](&routing.StateIncludeIdle{})
 
 	cfg := DefaultRoutingConfig[tiny.Key, tiny.Node]()
-	routingBehaviour, err := ComposeRoutingBehaviour(self, idleBootstrap(), include, idleProbe(), idleExplore(), cfg)
+	routingBehaviour, err := ComposeRoutingBehaviour(self, idleBootstrap(), include, idleProbe(), idleExplore(), nil, cfg)
 	require.NoError(t, err)
 
 	failure := errors.New("failed")
@@ -464,7 +573,7 @@ func TestRoutingIncludedNodeAddToProbeList(t *testing.T) {
 		require.NoError(t, err)
 
 		cfg := DefaultRoutingConfig[tiny.Key, tiny.Node]()
-		routingBehaviour, err := ComposeRoutingBehaviour(self, idleBootstrap(), include, probe, idleExplore(), cfg)
+		routingBehaviour, err := ComposeRoutingBehaviour(self, idleBootstrap(), include, probe, idleExplore(), nil, cfg)
 		require.NoError(t, err)
 
 		// a new node to be included
@@ -547,7 +656,7 @@ func TestRoutingExploreSendsEvent(t *testing.T) {
 	require.NoError(t, err)
 
 	cfg := DefaultRoutingConfig[tiny.Key, tiny.Node]()
-	routingBehaviour, err := ComposeRoutingBehaviour(self, idleBootstrap(), idleInclude(), idleProbe(), explore, cfg)
+	routingBehaviour, err := ComposeRoutingBehaviour(self, idleBootstrap(), idleInclude(), idleProbe(), explore, nil, cfg)
 	require.NoError(t, err)
 
 	routingBehaviour.Notify(ctx, &EventRoutingPoll{})
@@ -578,7 +687,7 @@ func TestRoutingExploreGetClosestNodesSuccess(t *testing.T) {
 	explore := NewRecordingSM[routing.ExploreEvent, routing.ExploreState](&routing.StateExploreIdle{})
 
 	cfg := DefaultRoutingConfig[tiny.Key, tiny.Node]()
-	routingBehaviour, err := ComposeRoutingBehaviour(self, idleBootstrap(), idleInclude(), idleProbe(), explore, cfg)
+	routingBehaviour, err := ComposeRoutingBehaviour(self, idleBootstrap(), idleInclude(), idleProbe(), explore, nil, cfg)
 	require.NoError(t, err)
 
 	ev := &EventGetCloserNodesSuccess[tiny.Key, tiny.Node]{
@@ -610,7 +719,7 @@ func TestRoutingExploreGetClosestNodesFailure(t *testing.T) {
 	explore := NewRecordingSM[routing.ExploreEvent, routing.ExploreState](&routing.StateExploreIdle{})
 
 	cfg := DefaultRoutingConfig[tiny.Key, tiny.Node]()
-	routingBehaviour, err := ComposeRoutingBehaviour(self, idleBootstrap(), idleInclude(), idleProbe(), explore, cfg)
+	routingBehaviour, err := ComposeRoutingBehaviour(self, idleBootstrap(), idleInclude(), idleProbe(), explore, nil, cfg)
 	require.NoError(t, err)
 
 	failure := errors.New("failed")
@@ -630,6 +739,245 @@ func TestRoutingExploreGetClosestNodesFailure(t *testing.T) {
 	rev := explore.first().(*routing.EventExploreFindCloserFailure[tiny.Key, tiny.Node])
 	require.Equal(t, nodes[1].NodeID, rev.NodeID)
 	require.Equal(t, failure, rev.Error)
+}
+
+func TestRoutingSurveyOffWhenNil(t *testing.T) {
+	ctx := kadtest.CtxShort(t)
+
+	_, nodes, err := linearTopology(4)
+	require.NoError(t, err)
+
+	self := nodes[0].NodeID
+
+	// no survey supplied, so the behaviour must not attempt to survey any region
+	cfg := DefaultRoutingConfig[tiny.Key, tiny.Node]()
+	routingBehaviour, err := ComposeRoutingBehaviour(self, idleBootstrap(), idleInclude(), idleProbe(), idleExplore(), nil, cfg)
+	require.NoError(t, err)
+
+	routingBehaviour.Notify(ctx, &EventRoutingPoll{})
+
+	// polling with every child idle and no survey produces no event
+	_, ok := routingBehaviour.Perform(ctx)
+	require.False(t, ok)
+}
+
+func TestRoutingSurveySendsEvent(t *testing.T) {
+	ctx := kadtest.CtxShort(t)
+
+	_, nodes, err := linearTopology(4)
+	require.NoError(t, err)
+
+	self := nodes[0].NodeID
+
+	// a survey that wants to find closer nodes for a target inside a region
+	survey := NewRecordingSM[routing.SurveyEvent, routing.SurveyState](&routing.StateSurveyFindCloser[tiny.Key, tiny.Node]{
+		QueryID: routing.SurveyQueryID,
+		Target:  self.Key(),
+		NodeID:  nodes[1].NodeID,
+	})
+
+	cfg := DefaultRoutingConfig[tiny.Key, tiny.Node]()
+	routingBehaviour, err := ComposeRoutingBehaviour(self, idleBootstrap(), idleInclude(), idleProbe(), idleExplore(), survey, cfg)
+	require.NoError(t, err)
+
+	routingBehaviour.Notify(ctx, &EventRoutingPoll{})
+
+	dev, ok := routingBehaviour.Perform(ctx)
+	require.True(t, ok)
+
+	// the survey should be asking to send a message to the node
+	require.IsType(t, &EventOutboundGetCloserNodes[tiny.Key, tiny.Node]{}, dev)
+	gcl := dev.(*EventOutboundGetCloserNodes[tiny.Key, tiny.Node])
+	require.Equal(t, routing.SurveyQueryID, gcl.QueryID)
+	require.Equal(t, nodes[1].NodeID, gcl.To)
+	require.Equal(t, self.Key(), gcl.Target)
+}
+
+func TestRoutingSurveyEmitsRegionSurveyed(t *testing.T) {
+	ctx := kadtest.CtxShort(t)
+
+	_, nodes, err := linearTopology(4)
+	require.NoError(t, err)
+
+	self := nodes[0].NodeID
+
+	members := []tiny.Node{nodes[1].NodeID, nodes[2].NodeID}
+
+	// a survey that has finished surveying a region
+	survey := NewRecordingSM[routing.SurveyEvent, routing.SurveyState](&routing.StateSurveyFinished[tiny.Key, tiny.Node]{
+		Prefix: bitstr.Key("00"),
+		Nodes:  members,
+	})
+
+	cfg := DefaultRoutingConfig[tiny.Key, tiny.Node]()
+	routingBehaviour, err := ComposeRoutingBehaviour(self, idleBootstrap(), idleInclude(), idleProbe(), idleExplore(), survey, cfg)
+	require.NoError(t, err)
+
+	routingBehaviour.Notify(ctx, &EventRoutingPoll{})
+
+	dev, ok := routingBehaviour.Perform(ctx)
+	require.True(t, ok)
+
+	// a finished survey travels outwards as a region surveyed notification
+	require.IsType(t, &EventRegionSurveyed[tiny.Key, tiny.Node]{}, dev)
+	rs := dev.(*EventRegionSurveyed[tiny.Key, tiny.Node])
+	require.Equal(t, bitstr.Key("00"), rs.Prefix)
+	require.Equal(t, members, rs.Nodes)
+}
+
+func TestRoutingSurveyGetCloserNodesSuccess(t *testing.T) {
+	ctx := kadtest.CtxShort(t)
+
+	_, nodes, err := linearTopology(4)
+	require.NoError(t, err)
+
+	self := nodes[0].NodeID
+
+	// records the event passed to the survey
+	survey := idleSurvey()
+
+	cfg := DefaultRoutingConfig[tiny.Key, tiny.Node]()
+	routingBehaviour, err := ComposeRoutingBehaviour(self, idleBootstrap(), idleInclude(), idleProbe(), idleExplore(), survey, cfg)
+	require.NoError(t, err)
+
+	ev := &EventGetCloserNodesSuccess[tiny.Key, tiny.Node]{
+		QueryID:     routing.SurveyQueryID,
+		To:          nodes[1].NodeID,
+		Target:      nodes[0].NodeID.Key(),
+		CloserNodes: []tiny.Node{nodes[2].NodeID},
+	}
+	routingBehaviour.Notify(ctx, ev)
+	routingBehaviour.Perform(ctx)
+
+	// survey should receive the message response event
+	require.IsType(t, &routing.EventSurveyFindCloserResponse[tiny.Key, tiny.Node]{}, survey.first())
+	rev := survey.first().(*routing.EventSurveyFindCloserResponse[tiny.Key, tiny.Node])
+	require.True(t, nodes[1].NodeID.Equal(rev.NodeID))
+	require.Equal(t, ev.CloserNodes, rev.CloserNodes)
+}
+
+func TestRoutingSurveyGetCloserNodesFailure(t *testing.T) {
+	ctx := kadtest.CtxShort(t)
+
+	_, nodes, err := linearTopology(4)
+	require.NoError(t, err)
+
+	self := nodes[0].NodeID
+
+	// records the event passed to the survey
+	survey := idleSurvey()
+
+	cfg := DefaultRoutingConfig[tiny.Key, tiny.Node]()
+	routingBehaviour, err := ComposeRoutingBehaviour(self, idleBootstrap(), idleInclude(), idleProbe(), idleExplore(), survey, cfg)
+	require.NoError(t, err)
+
+	failure := errors.New("failed")
+	ev := &EventGetCloserNodesFailure[tiny.Key, tiny.Node]{
+		QueryID: routing.SurveyQueryID,
+		To:      nodes[1].NodeID,
+		Target:  nodes[0].NodeID.Key(),
+		Err:     failure,
+	}
+
+	routingBehaviour.Notify(ctx, ev)
+	routingBehaviour.Perform(ctx)
+
+	// survey should receive the message failure event
+	require.IsType(t, &routing.EventSurveyFindCloserFailure[tiny.Key, tiny.Node]{}, survey.first())
+	rev := survey.first().(*routing.EventSurveyFindCloserFailure[tiny.Key, tiny.Node])
+	require.Equal(t, nodes[1].NodeID, rev.NodeID)
+	require.Equal(t, failure, rev.Error)
+}
+
+// stubTargetFn is a survey target function that always returns the zero key.
+func stubTargetFn(bitstr.Key) (tiny.Key, error) { return tiny.Key(0), nil }
+
+func TestNewRoutingBehaviourSurveyDisabled(t *testing.T) {
+	_, nodes, err := linearTopology(4)
+	require.NoError(t, err)
+
+	self := nodes[0].NodeID
+	rt := nodes[0].RoutingTable
+
+	// with no survey target function the survey is left off
+	cfg := DefaultRoutingConfig[tiny.Key, tiny.Node]()
+	rb, err := NewRoutingBehaviour(self, rt, cfg)
+	require.NoError(t, err)
+	require.Nil(t, rb.survey)
+}
+
+func TestNewRoutingBehaviourSurveyEnabled(t *testing.T) {
+	_, nodes, err := linearTopology(4)
+	require.NoError(t, err)
+
+	self := nodes[0].NodeID
+	rt := nodes[0].RoutingTable
+
+	// enabling the survey with a target function turns it on
+	cfg := DefaultRoutingConfig[tiny.Key, tiny.Node]()
+	cfg.EnableSurvey = true
+	cfg.SurveyTargetFunc = stubTargetFn
+	rb, err := NewRoutingBehaviour(self, rt, cfg)
+	require.NoError(t, err)
+	require.NotNil(t, rb.survey)
+}
+
+func TestNewRoutingBehaviourSurveyEnabledRequiresTargetFn(t *testing.T) {
+	_, nodes, err := linearTopology(4)
+	require.NoError(t, err)
+
+	self := nodes[0].NodeID
+	rt := nodes[0].RoutingTable
+
+	// enabling the survey without a target function is a configuration error
+	cfg := DefaultRoutingConfig[tiny.Key, tiny.Node]()
+	cfg.EnableSurvey = true
+	_, err = NewRoutingBehaviour(self, rt, cfg)
+	require.Error(t, err)
+}
+
+func TestNewRoutingBehaviourExploreDisabled(t *testing.T) {
+	_, nodes, err := linearTopology(4)
+	require.NoError(t, err)
+
+	self := nodes[0].NodeID
+	rt := nodes[0].RoutingTable
+
+	// with no cpl function the explore is left off
+	cfg := DefaultRoutingConfig[tiny.Key, tiny.Node]()
+	rb, err := NewRoutingBehaviour(self, rt, cfg)
+	require.NoError(t, err)
+	require.Nil(t, rb.explore)
+}
+
+func TestNewRoutingBehaviourExploreEnabled(t *testing.T) {
+	_, nodes, err := linearTopology(4)
+	require.NoError(t, err)
+
+	self := nodes[0].NodeID
+	rt := nodes[0].RoutingTable
+
+	// enabling the explore with a cpl function turns it on
+	cfg := DefaultRoutingConfig[tiny.Key, tiny.Node]()
+	cfg.EnableExplore = true
+	cfg.ExploreCplFunc = tiny.NodeWithCpl
+	rb, err := NewRoutingBehaviour(self, rt, cfg)
+	require.NoError(t, err)
+	require.NotNil(t, rb.explore)
+}
+
+func TestNewRoutingBehaviourExploreEnabledRequiresCplFn(t *testing.T) {
+	_, nodes, err := linearTopology(4)
+	require.NoError(t, err)
+
+	self := nodes[0].NodeID
+	rt := nodes[0].RoutingTable
+
+	// enabling the explore without a cpl function is a configuration error
+	cfg := DefaultRoutingConfig[tiny.Key, tiny.Node]()
+	cfg.EnableExplore = true
+	_, err = NewRoutingBehaviour(self, rt, cfg)
+	require.Error(t, err)
 }
 
 // TestRoutingProbeKeepsNodeWhenCheckDropped checks that a connectivity check the network
@@ -652,7 +1000,7 @@ func TestRoutingProbeKeepsNodeWhenCheckDropped(t *testing.T) {
 		probe, err := routing.NewProbe(rt, probeCfg)
 		require.NoError(t, err)
 
-		routingBehaviour, err := ComposeRoutingBehaviour(self, idleBootstrap(), idleInclude(), probe, idleExplore(), DefaultRoutingConfig[tiny.Key, tiny.Node]())
+		routingBehaviour, err := ComposeRoutingBehaviour(self, idleBootstrap(), idleInclude(), probe, idleExplore(), nil, DefaultRoutingConfig[tiny.Key, tiny.Node]())
 		require.NoError(t, err)
 
 		// the linear topology puts the second node in the first node's routing table
@@ -715,7 +1063,7 @@ func TestRoutingBehaviourTracksExploreResults(t *testing.T) {
 	cfg.NetworkSize = nse
 
 	self := tiny.NewNode(tiny.Key(0b11111111))
-	routingBehaviour, err := ComposeRoutingBehaviour(self, idleBootstrap(), idleInclude(), idleProbe(), explore, cfg)
+	routingBehaviour, err := ComposeRoutingBehaviour(self, idleBootstrap(), idleInclude(), idleProbe(), explore, nil, cfg)
 	if err != nil {
 		t.Fatalf("compose routing behaviour: %v", err)
 	}
@@ -789,7 +1137,7 @@ func TestRoutingBehaviourTracksBootstrapResults(t *testing.T) {
 	cfg.NetworkSize = nse
 
 	self := tiny.NewNode(tiny.Key(0b11111111))
-	routingBehaviour, err := ComposeRoutingBehaviour(self, bootstrap, idleInclude(), idleProbe(), idleExplore(), cfg)
+	routingBehaviour, err := ComposeRoutingBehaviour(self, bootstrap, idleInclude(), idleProbe(), idleExplore(), nil, cfg)
 	if err != nil {
 		t.Fatalf("compose routing behaviour: %v", err)
 	}

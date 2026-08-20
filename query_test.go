@@ -390,7 +390,7 @@ func TestQueryTimeoutUnblocksWaitForQuery(t *testing.T) {
 
 		// the coordinator is closed immediately so the test drives the query behaviour
 		// itself rather than racing the event loop
-		c, err := NewCoordinator(nodes[0].NodeID, nodes[0].Router, nodes[0].RoutingTable, tiny.NodeWithCpl, cfg)
+		c, err := NewCoordinator(nodes[0].NodeID, nodes[0].Router, nodes[0].RoutingTable, cfg)
 		require.NoError(t, err)
 		require.NoError(t, c.Close())
 
@@ -442,7 +442,7 @@ func TestQueryDeadlockRegression(t *testing.T) {
 	// However, we want to test as many parts as possible and waitForQuery
 	// is defined on the coordinator. Therfore, we instantiate a coordinator
 	// and close it immediately to manually control state machine progression.
-	c, err := NewCoordinator(nodes[0].NodeID, nodes[0].Router, nodes[0].RoutingTable, tiny.NodeWithCpl, nil)
+	c, err := NewCoordinator(nodes[0].NodeID, nodes[0].Router, nodes[0].RoutingTable, nil)
 	require.NoError(t, err)
 	require.NoError(t, c.Close()) // close immediately so that we control the state machine progression
 
