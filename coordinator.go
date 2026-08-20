@@ -242,6 +242,54 @@ func NewCoordinator[K kad.Key[K], N kad.NodeID[K], M coordt.Message[K, N]](
 		return nil, fmt.Errorf("create network_size gauge: %w", err)
 	}
 
+	_, err = behaviourMeter.Float64ObservableGauge(
+		"network_size_stderr",
+		metric.WithDescription("Standard error of the network size estimate"),
+		metric.WithFloat64Callback(func(ctx context.Context, o metric.Float64Observer) error {
+			est, err := nse.Estimate(time.Now())
+			if err != nil {
+				return nil
+			}
+			o.Observe(est.StdErr)
+			return nil
+		}),
+	)
+	if err != nil {
+		return nil, fmt.Errorf("create network_size_stderr gauge: %w", err)
+	}
+
+	_, err = behaviourMeter.Float64ObservableGauge(
+		"network_size_fit",
+		metric.WithDescription("Goodness of fit of the network size estimate"),
+		metric.WithFloat64Callback(func(ctx context.Context, o metric.Float64Observer) error {
+			est, err := nse.Estimate(time.Now())
+			if err != nil {
+				return nil
+			}
+			o.Observe(est.Fit)
+			return nil
+		}),
+	)
+	if err != nil {
+		return nil, fmt.Errorf("create network_size_fit gauge: %w", err)
+	}
+
+	_, err = behaviourMeter.Int64ObservableGauge(
+		"network_size_samples",
+		metric.WithDescription("Number of samples behind the network size estimate"),
+		metric.WithInt64Callback(func(ctx context.Context, o metric.Int64Observer) error {
+			est, err := nse.Estimate(time.Now())
+			if err != nil {
+				return nil
+			}
+			o.Observe(int64(est.Samples))
+			return nil
+		}),
+	)
+	if err != nil {
+		return nil, fmt.Errorf("create network_size_samples gauge: %w", err)
+	}
+
 	queryBehaviour, err := NewQueryBehaviour[K, N, M](self, &cfg.Query)
 	if err != nil {
 		return nil, fmt.Errorf("query behaviour: %w", err)

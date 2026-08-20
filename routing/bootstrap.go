@@ -71,6 +71,9 @@ type Bootstrap[K kad.Key[K], N kad.NodeID[K]] struct {
 
 	// running records whether the bootstrap is running after the last state change so that it can be read asynchronously by gaugeRunning
 	running atomic.Bool
+
+	// histogramDuration records how long each completed bootstrap took, in seconds.
+	histogramDuration metric.Float64Histogram
 }
 
 // BootstrapConfig specifies optional configuration for a Bootstrap
@@ -237,6 +240,14 @@ func NewBootstrap[K kad.Key[K], N kad.NodeID[K]](self N, rt kad.RoutingTable[K, 
 		return nil, fmt.Errorf("create bootstrap_running gauge: %w", err)
 	}
 
+	b.histogramDuration, err = cfg.Meter.Float64Histogram(
+		"bootstrap_duration_seconds",
+		metric.WithDescription("How long each completed bootstrap took, in seconds"),
+	)
+	if err != nil {
+		return nil, fmt.Errorf("create bootstrap_duration_seconds histogram: %w", err)
+	}
+
 	return b, nil
 }
 
@@ -347,6 +358,7 @@ func (b *Bootstrap[K, N]) advanceQuery(ctx context.Context, now time.Time, qev q
 		}
 	case *query.StateQueryFinished[K, N]:
 		span.SetAttributes(attribute.String("out_state", "StateBootstrapFinished"))
+		b.histogramDuration.Record(ctx, st.Stats.End.Sub(st.Stats.Start).Seconds())
 		b.qry = nil
 		return &StateBootstrapFinished[K, N]{
 			Stats:        st.Stats,

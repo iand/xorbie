@@ -82,6 +82,24 @@ type Survey[K kad.Key[K], N kad.NodeID[K]] struct {
 
 	// running records whether a survey is running after the last state change so that it can be read asynchronously by gaugeRunning
 	running atomic.Bool
+
+	// counterCompleted is a counter that tracks the number of region surveys that ran to completion.
+	counterCompleted metric.Int64Counter
+
+	// counterTimeout is a counter that tracks the number of region surveys that timed out.
+	counterTimeout metric.Int64Counter
+
+	// counterFailed is a counter that tracks the number of region surveys that could not be started.
+	counterFailed metric.Int64Counter
+
+	// histogramPopulation records the number of nodes each completed survey found in its region.
+	histogramPopulation metric.Int64Histogram
+
+	// gaugeRegions is a gauge that tracks the number of regions in the table.
+	gaugeRegions metric.Int64ObservableGauge
+
+	// gaugeOldestAge is a gauge that tracks the age in seconds of the least recently surveyed region.
+	gaugeOldestAge metric.Int64ObservableGauge
 }
 
 // SurveyConfig specifies optional configuration for a [Survey].
@@ -234,7 +252,81 @@ func NewSurvey[K kad.Key[K], N kad.NodeID[K]](self N, rt RoutingTableCpl[K, N], 
 		return nil, fmt.Errorf("create survey_running gauge: %w", err)
 	}
 
+	s.counterCompleted, err = cfg.Meter.Int64Counter(
+		"surveys_completed",
+		metric.WithDescription("Total number of region surveys that ran to completion"),
+	)
+	if err != nil {
+		return nil, fmt.Errorf("create surveys_completed counter: %w", err)
+	}
+
+	s.counterTimeout, err = cfg.Meter.Int64Counter(
+		"surveys_timeout",
+		metric.WithDescription("Total number of region surveys that timed out"),
+	)
+	if err != nil {
+		return nil, fmt.Errorf("create surveys_timeout counter: %w", err)
+	}
+
+	s.counterFailed, err = cfg.Meter.Int64Counter(
+		"surveys_failed",
+		metric.WithDescription("Total number of region surveys that could not be started"),
+	)
+	if err != nil {
+		return nil, fmt.Errorf("create surveys_failed counter: %w", err)
+	}
+
+	s.histogramPopulation, err = cfg.Meter.Int64Histogram(
+		"survey_region_population",
+		metric.WithDescription("Number of nodes a completed survey found in its region"),
+	)
+	if err != nil {
+		return nil, fmt.Errorf("create survey_region_population histogram: %w", err)
+	}
+
+	s.gaugeRegions, err = cfg.Meter.Int64ObservableGauge(
+		"survey_regions",
+		metric.WithDescription("Number of regions in the table"),
+		metric.WithInt64Callback(func(ctx context.Context, o metric.Int64Observer) error {
+			o.Observe(int64(len(s.table.Regions())))
+			return nil
+		}),
+	)
+	if err != nil {
+		return nil, fmt.Errorf("create survey_regions gauge: %w", err)
+	}
+
+	s.gaugeOldestAge, err = cfg.Meter.Int64ObservableGauge(
+		"survey_oldest_region_age_seconds",
+		metric.WithDescription("Age in seconds of the least recently surveyed region"),
+		metric.WithInt64Callback(func(ctx context.Context, o metric.Int64Observer) error {
+			o.Observe(oldestRegionAge(s.table.Regions(), time.Now()))
+			return nil
+		}),
+	)
+	if err != nil {
+		return nil, fmt.Errorf("create survey_oldest_region_age_seconds gauge: %w", err)
+	}
+
 	return s, nil
+}
+
+// oldestRegionAge returns the age in seconds of the least recently surveyed region, ignoring regions
+// that have never been surveyed. It is zero when no region has been surveyed yet.
+func oldestRegionAge(regions []prefix.Region, now time.Time) int64 {
+	var oldest time.Time
+	for _, r := range regions {
+		if r.LastSurveyed.IsZero() {
+			continue
+		}
+		if oldest.IsZero() || r.LastSurveyed.Before(oldest) {
+			oldest = r.LastSurveyed
+		}
+	}
+	if oldest.IsZero() {
+		return 0
+	}
+	return int64(now.Sub(oldest).Seconds())
 }
 
 // Advance advances the state of the survey, starting a survey for the next due region when none is
@@ -317,6 +409,7 @@ func (s *Survey[K, N]) seedSchedule(now time.Time) {
 func (s *Survey[K, N]) startSurvey(ctx context.Context, now time.Time, region bitstr.Key) SurveyState {
 	target, err := s.targetFn(region)
 	if err != nil {
+		s.counterFailed.Add(ctx, 1)
 		return &StateSurveyFailure{Prefix: region, Error: fmt.Errorf("target for prefix %s: %w", region, err)}
 	}
 
@@ -332,6 +425,7 @@ func (s *Survey[K, N]) startSurvey(ctx context.Context, now time.Time, region bi
 
 	qry, err := query.NewCoverageQuery[K, N, coordt.NoMessage[K, N]](s.self, SurveyQueryID, target, len(region), iter, seeds, qryCfg)
 	if err != nil {
+		s.counterFailed.Add(ctx, 1)
 		return &StateSurveyFailure{Prefix: region, Error: fmt.Errorf("start coverage query: %w", err)}
 	}
 
@@ -360,6 +454,8 @@ func (s *Survey[K, N]) advanceQuery(ctx context.Context, now time.Time, qev quer
 		}
 	case *query.StateQueryFinished[K, N]:
 		span.SetAttributes(attribute.String("out_state", "StateSurveyFinished"))
+		s.counterCompleted.Add(ctx, 1)
+		s.histogramPopulation.Record(ctx, int64(len(st.ClosestNodes)))
 		s.clearQuery()
 		removed, added := s.table.Observe(region, memberKeys[K, N](st.ClosestNodes), now)
 		s.reconcile(removed, added)
@@ -371,6 +467,7 @@ func (s *Survey[K, N]) advanceQuery(ctx context.Context, now time.Time, qev quer
 	case *query.StateQueryWaitingAtCapacity:
 		if now.After(st.Deadline) {
 			span.SetAttributes(attribute.String("out_state", "StateSurveyTimeout"))
+			s.counterTimeout.Add(ctx, 1)
 			s.clearQuery()
 			return &StateSurveyTimeout{Prefix: region, Stats: st.Stats}
 		}
@@ -378,6 +475,7 @@ func (s *Survey[K, N]) advanceQuery(ctx context.Context, now time.Time, qev quer
 	case *query.StateQueryWaitingWithCapacity:
 		if now.After(st.Deadline) {
 			span.SetAttributes(attribute.String("out_state", "StateSurveyTimeout"))
+			s.counterTimeout.Add(ctx, 1)
 			s.clearQuery()
 			return &StateSurveyTimeout{Prefix: region, Stats: st.Stats}
 		}

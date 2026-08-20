@@ -467,6 +467,12 @@ type RoutingBehaviour[K kad.Key[K], N kad.NodeID[K]] struct {
 	// gaugeInboundDepth tracks the number of events waiting in the inbound queue.
 	gaugeInboundDepth metric.Int64ObservableGauge
 
+	// counterAdditions counts the nodes added to the routing table.
+	counterAdditions metric.Int64Counter
+
+	// counterRemovals counts the nodes removed from the routing table.
+	counterRemovals metric.Int64Counter
+
 	// bootstrapDue, includeDue, probeDue, exploreDue and surveyDue hold the time each child
 	// state machine last reported it could next make progress without an event arriving, or the
 	// zero time if it reported none. Each is written only when its own child is advanced.
@@ -631,6 +637,22 @@ func ComposeRoutingBehaviour[K kad.Key[K], N kad.NodeID[K]](
 	)
 	if err != nil {
 		return nil, fmt.Errorf("create routing_inbound_queue_depth gauge: %w", err)
+	}
+
+	r.counterAdditions, err = cfg.Meter.Int64Counter(
+		"routing_table_additions",
+		metric.WithDescription("Total number of nodes added to the routing table"),
+	)
+	if err != nil {
+		return nil, fmt.Errorf("create routing_table_additions counter: %w", err)
+	}
+
+	r.counterRemovals, err = cfg.Meter.Int64Counter(
+		"routing_table_removals",
+		metric.WithDescription("Total number of nodes removed from the routing table"),
+	)
+	if err != nil {
+		return nil, fmt.Errorf("create routing_table_removals counter: %w", err)
 	}
 
 	r.readyTimer = newReadyTimer(r.ready)
@@ -1052,6 +1074,7 @@ func (r *RoutingBehaviour[K, N]) advanceInclude(ctx context.Context, now time.Ti
 
 	case *routing.StateIncludeRoutingUpdated[K, N]:
 		// a node has been included in the routing table
+		r.counterAdditions.Add(ctx, 1)
 
 		// notify other routing state machines that there is a new node in the routing table
 		r.Notify(ctx, &EventRoutingUpdated[K, N]{
@@ -1099,6 +1122,7 @@ func (r *RoutingBehaviour[K, N]) advanceProbe(ctx context.Context, now time.Time
 		}, true
 	case *routing.StateProbeNodeFailure[K, N]:
 		// a node has failed a connectivity check and been removed from the routing table and the probe list
+		r.counterRemovals.Add(ctx, 1)
 
 		// emit an EventRoutingRemoved event to notify clients that the node has been removed
 		r.cfg.Logger.Debug("node removed from routing table", logAttrNodeID(st.NodeID))
