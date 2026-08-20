@@ -97,7 +97,7 @@ type CoordinatorConfig[K kad.Key[K], N kad.NodeID[K], M coordt.Message[K, N]] st
 	// Routing is the configuration used for the [RoutingBehaviour] which maintains the health of the routing table.
 	Routing RoutingConfig[K, N]
 
-	// Query is the configuration used for the [PooledQueryBehaviour] which manages the execution of user queries.
+	// Query is the configuration used for the [QueryBehaviour] which manages the execution of user queries.
 	Query QueryConfig[K, N]
 
 	// Publish is the configuration used for the [PublishBehaviour] which manages the storing of records with other nodes.
@@ -165,7 +165,7 @@ func DefaultCoordinatorConfig[K kad.Key[K], N kad.NodeID[K], M coordt.Message[K,
 	}
 
 	cfg.Query = *DefaultQueryConfig[K, N]()
-	cfg.Query.Logger = cfg.Logger.With("behaviour", "pooledquery")
+	cfg.Query.Logger = cfg.Logger.With("behaviour", "query")
 	cfg.Query.Tracer = cfg.TracerProvider.Tracer(tracerName)
 	cfg.Query.Meter = cfg.MeterProvider.Meter(meterName)
 

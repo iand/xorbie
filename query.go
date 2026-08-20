@@ -54,55 +54,55 @@ type QueryConfig[K kad.Key[K], N kad.NodeID[K]] struct {
 func (cfg *QueryConfig[K, N]) Validate() error {
 	if cfg.Logger == nil {
 		return &coordt.ConfigurationError{
-			Component: "PooledQueryConfig",
+			Component: "QueryConfig",
 			Err:       fmt.Errorf("logger must not be nil"),
 		}
 	}
 
 	if cfg.Tracer == nil {
 		return &coordt.ConfigurationError{
-			Component: "PooledQueryConfig",
+			Component: "QueryConfig",
 			Err:       fmt.Errorf("tracer must not be nil"),
 		}
 	}
 
 	if cfg.Meter == nil {
 		return &coordt.ConfigurationError{
-			Component: "PooledQueryConfig",
+			Component: "QueryConfig",
 			Err:       fmt.Errorf("meter must not be nil"),
 		}
 	}
 
 	if cfg.QueueCapacity < 1 {
 		return &coordt.ConfigurationError{
-			Component: "PooledQueryConfig",
+			Component: "QueryConfig",
 			Err:       fmt.Errorf("queue capacity must be greater than zero"),
 		}
 	}
 
 	if cfg.Concurrency < 1 {
 		return &coordt.ConfigurationError{
-			Component: "PooledQueryConfig",
+			Component: "QueryConfig",
 			Err:       fmt.Errorf("query concurrency must be greater than zero"),
 		}
 	}
 	if cfg.Timeout < 1 {
 		return &coordt.ConfigurationError{
-			Component: "PooledQueryConfig",
+			Component: "QueryConfig",
 			Err:       fmt.Errorf("query timeout must be greater than zero"),
 		}
 	}
 
 	if cfg.RequestConcurrency < 1 {
 		return &coordt.ConfigurationError{
-			Component: "PooledQueryConfig",
+			Component: "QueryConfig",
 			Err:       fmt.Errorf("request concurrency must be greater than zero"),
 		}
 	}
 
 	if cfg.RequestTimeout < 1 {
 		return &coordt.ConfigurationError{
-			Component: "PooledQueryConfig",
+			Component: "QueryConfig",
 			Err:       fmt.Errorf("request timeout must be greater than zero"),
 		}
 	}
@@ -228,7 +228,7 @@ func NewQueryBehaviour[K kad.Key[K], N kad.NodeID[K], M coordt.Message[K, N]](se
 // stopping, or updating queries. It also queues events for later processing and
 // triggers the advancement of the query pool if applicable.
 func (p *QueryBehaviour[K, N, M]) Notify(ctx context.Context, ev BehaviourEvent) {
-	ctx, span := p.cfg.Tracer.Start(ctx, "PooledQueryBehaviour.Notify")
+	ctx, span := p.cfg.Tracer.Start(ctx, "QueryBehaviour.Notify")
 	defer span.End()
 
 	if !p.inbound.enqueue(CtxEvent[BehaviourEvent]{Ctx: ctx, Event: ev}) {
@@ -268,7 +268,7 @@ func (p *QueryBehaviour[K, N, M]) reportDropped(ctx context.Context, ev Behaviou
 	n.NotifyFinished(ctx, &EventQueryFinished[K, N]{QueryID: queryID, Err: ErrEventDropped})
 }
 
-// Ready returns a channel that signals when the pooled query behaviour is ready to
+// Ready returns a channel that signals when the query behaviour is ready to
 // perform work.
 func (p *QueryBehaviour[K, N, M]) Ready() <-chan struct{} {
 	return p.ready
@@ -281,7 +281,7 @@ func (p *QueryBehaviour[K, N, M]) Perform(ctx context.Context) (out BehaviourEve
 	p.performMu.Lock()
 	defer p.performMu.Unlock()
 
-	ctx, span := p.cfg.Tracer.Start(ctx, "PooledQueryBehaviour.Perform")
+	ctx, span := p.cfg.Tracer.Start(ctx, "QueryBehaviour.Perform")
 	defer span.End()
 
 	defer func() { p.updateReadyStatus(performed) }()
@@ -298,7 +298,7 @@ func (p *QueryBehaviour[K, N, M]) Perform(ctx context.Context) (out BehaviourEve
 	}
 
 	// perform one piece of pending inbound work.
-	ev, ok = p.perfomNextInbound(ctx)
+	ev, ok = p.performNextInbound(ctx)
 	if ok {
 		return ev, true
 	}
@@ -326,8 +326,8 @@ func (p *QueryBehaviour[K, N, M]) nextPendingInbound() (CtxEvent[BehaviourEvent]
 	return p.inbound.dequeue()
 }
 
-func (p *QueryBehaviour[K, N, M]) perfomNextInbound(ctx context.Context) (BehaviourEvent, bool) {
-	ctx, span := p.cfg.Tracer.Start(ctx, "PooledQueryBehaviour.perfomNextInbound")
+func (p *QueryBehaviour[K, N, M]) performNextInbound(ctx context.Context) (BehaviourEvent, bool) {
+	ctx, span := p.cfg.Tracer.Start(ctx, "QueryBehaviour.performNextInbound")
 	defer span.End()
 	pev, ok := p.nextPendingInbound()
 	if !ok {
@@ -459,7 +459,7 @@ func (p *QueryBehaviour[K, N, M]) updateReadyStatus(performed bool) {
 // there is work to be performed. Also notifies waiters of query completion or
 // progress.
 func (p *QueryBehaviour[K, N, M]) advancePool(ctx context.Context, now time.Time, ev query.PoolEvent) (out BehaviourEvent, term bool) {
-	ctx, span := p.cfg.Tracer.Start(ctx, "PooledQueryBehaviour.advancePool", trace.WithAttributes(coordt.AttrInEvent(ev)))
+	ctx, span := p.cfg.Tracer.Start(ctx, "QueryBehaviour.advancePool", trace.WithAttributes(coordt.AttrInEvent(ev)))
 	defer func() {
 		span.SetAttributes(coordt.AttrOutEvent(out))
 		span.End()

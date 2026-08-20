@@ -149,7 +149,7 @@ func NewPublishBehaviour[K kad.Key[K], N kad.NodeID[K], M coordt.Message[K, N]](
 		notifiers: make(map[coordt.QueryID]*queryNotifier[K, N, M, *EventPublishFinished[K, N]]),
 		inbound:   newInboundQueue(cfg.QueueCapacity),
 		ready:     make(chan struct{}, 1),
-		logger:    cfg.Logger.With("behaviour", "pooledpublish"),
+		logger:    cfg.Logger.With("behaviour", "publish"),
 		tracer:    cfg.Tracer,
 
 		verifyResponse: cfg.VerifyResponse,
@@ -254,7 +254,7 @@ func (b *PublishBehaviour[K, N, M]) Perform(ctx context.Context) (out BehaviourE
 	}
 
 	// perform one piece of pending inbound work.
-	ev, ok = b.perfomNextInbound(ctx)
+	ev, ok = b.performNextInbound(ctx)
 	if ok {
 		return ev, true
 	}
@@ -308,8 +308,8 @@ func (b *PublishBehaviour[K, N, M]) updateReadyStatus(performed bool) {
 	b.readyTimer.Arm(b.nextDue)
 }
 
-func (b *PublishBehaviour[K, N, M]) perfomNextInbound(ctx context.Context) (BehaviourEvent, bool) {
-	ctx, span := b.tracer.Start(ctx, "PublishBehaviour.perfomNextInbound")
+func (b *PublishBehaviour[K, N, M]) performNextInbound(ctx context.Context) (BehaviourEvent, bool) {
+	ctx, span := b.tracer.Start(ctx, "PublishBehaviour.performNextInbound")
 	defer span.End()
 	pev, ok := b.nextPendingInbound()
 	if !ok {

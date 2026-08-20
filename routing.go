@@ -704,7 +704,7 @@ func (r *RoutingBehaviour[K, N]) Perform(ctx context.Context) (out BehaviourEven
 	}
 
 	// perform one piece of pending inbound work.
-	ev, ok = r.perfomNextInbound()
+	ev, ok = r.performNextInbound()
 	if ok {
 		return ev, true
 	}
@@ -766,7 +766,7 @@ func (r *RoutingBehaviour[K, N]) nextPendingInbound() (CtxEvent[BehaviourEvent],
 	return r.inbound.dequeue()
 }
 
-func (r *RoutingBehaviour[K, N]) perfomNextInbound() (BehaviourEvent, bool) {
+func (r *RoutingBehaviour[K, N]) performNextInbound() (BehaviourEvent, bool) {
 	pev, ok := r.nextPendingInbound()
 	if !ok {
 		return nil, false
@@ -775,7 +775,7 @@ func (r *RoutingBehaviour[K, N]) perfomNextInbound() (BehaviourEvent, bool) {
 	// every state machine advanced for this event sees the same instant
 	now := time.Now()
 
-	ctx, span := r.cfg.Tracer.Start(pev.Ctx, "PooledQueryBehaviour.perfomNextInbound")
+	ctx, span := r.cfg.Tracer.Start(pev.Ctx, "RoutingBehaviour.performNextInbound")
 	defer span.End()
 
 	switch ev := pev.Event.(type) {
