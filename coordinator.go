@@ -212,6 +212,8 @@ func NewCoordinator[K kad.Key[K], N kad.NodeID[K], M coordt.Message[K, N]](
 	cfg.Publish.Tracer, cfg.Publish.Meter = behaviourTracer, behaviourMeter
 	cfg.Network.Tracer, cfg.Network.Meter = behaviourTracer, behaviourMeter
 
+	cfg.Publish.RegionReplication = cfg.ReplicationFactor
+
 	// initialize a new telemetry struct
 	tele, err := NewTelemetry(cfg.MeterProvider, cfg.TracerProvider)
 	if err != nil {
@@ -410,6 +412,16 @@ func (c *Coordinator[K, N, M]) dispatchEvent(ctx context.Context, ev BehaviourEv
 		c.publishBehaviour.Notify(ctx, ev)
 	case RoutingCommand:
 		c.routingBehaviour.Notify(ctx, ev)
+	case *EventRegionSurveyed[K, N]:
+		c.routingNotifierMu.RLock()
+		rn := c.routingNotifier
+		c.routingNotifierMu.RUnlock()
+		rn.Notify(ctx, ev)
+		c.publishBehaviour.Notify(ctx, &EventStartRegionPublish[K, N]{
+			QueryID: c.newOperationID(),
+			Prefix:  ev.Prefix,
+			Nodes:   ev.Nodes,
+		})
 	case RoutingNotification:
 		c.routingNotifierMu.RLock()
 		rn := c.routingNotifier

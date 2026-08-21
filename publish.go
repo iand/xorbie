@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"slices"
 	"sync"
 	"time"
 
@@ -13,6 +14,7 @@ import (
 	"github.com/ipfs/go-libdht/kad"
 
 	"github.com/iand/xorbie/coordt"
+	"github.com/iand/xorbie/keystore"
 	"github.com/iand/xorbie/publish"
 )
 
@@ -44,6 +46,21 @@ type PublishConfig[K kad.Key[K], N kad.NodeID[K], M coordt.Message[K, N]] struct
 	// OptimisticSetStrictness is the probability that the closest set is in fact further from
 	// the key than an optimistic publish's set threshold.
 	OptimisticSetStrictness float64
+
+	// Keystore enumerates the keys this node provides by prefix, so a region publish can find
+	// every key inside a surveyed region. Region publishing is disabled if it is nil.
+	Keystore keystore.Keystore[K]
+
+	// RecordSource builds the message that stores a region key. Region publishing is disabled
+	// if it is nil.
+	RecordSource func(k K) M
+
+	// RegionReplication is the number of closest nodes a region publish stores each key with.
+	RegionReplication int
+
+	// RegionMaxInFlight is the greatest number of per-key publishes a region publish may have in
+	// flight at once.
+	RegionMaxInFlight int
 }
 
 // Validate checks the configuration options and returns an error if any have invalid values.
@@ -76,6 +93,23 @@ func (cfg *PublishConfig[K, N, M]) Validate() error {
 		}
 	}
 
+	// A region publish needs both a keystore to enumerate keys and a way to build their records
+	if cfg.Keystore != nil && cfg.RecordSource != nil {
+		if cfg.RegionReplication < 1 {
+			return &coordt.ConfigurationError{
+				Component: "PublishConfig",
+				Err:       fmt.Errorf("region replication must be greater than zero"),
+			}
+		}
+
+		if cfg.RegionMaxInFlight < 1 {
+			return &coordt.ConfigurationError{
+				Component: "PublishConfig",
+				Err:       fmt.Errorf("region max in flight must be greater than zero"),
+			}
+		}
+	}
+
 	return nil
 }
 
@@ -87,6 +121,7 @@ func DefaultPublishConfig[K kad.Key[K], N kad.NodeID[K], M coordt.Message[K, N]]
 		QueueCapacity:                 1024, // MAGIC
 		OptimisticIndividualCertainty: 0.9,  // MAGIC
 		OptimisticSetStrictness:       0.1,  // MAGIC
+		RegionMaxInFlight:             16,   // MAGIC
 	}
 }
 
@@ -103,6 +138,30 @@ type PublishBehaviour[K kad.Key[K], N kad.NodeID[K], M coordt.Message[K, N]] str
 	// pool is the publish pool state machine used for managing individual publishes.
 	// it must only be accessed while performMu is held
 	pool coordt.StateMachine[publish.PoolEvent, publish.PoolState]
+
+	// keystore enumerates the keys this node provides by prefix. It is nil when region
+	// publishing is disabled.
+	keystore keystore.Keystore[K]
+
+	// recordSource builds the message that stores a region key. It is nil when region
+	// publishing is disabled.
+	recordSource func(k K) M
+
+	// regionReplication is the number of closest nodes a region publish stores each key with.
+	regionReplication int
+
+	// regionMaxInFlight is the greatest number of per-key publishes a region publish may have in
+	// flight at once.
+	regionMaxInFlight int
+
+	// regions holds every running region publish, keyed by its region id.
+	// it must only be accessed while performMu is held
+	regions map[coordt.QueryID]*publish.RegionPublish[K, N]
+
+	// children records which region started each per-key publish, keyed by the
+	// publish operation's activity id
+	// it must only be accessed while performMu is held
+	children map[coordt.QueryID]coordt.QueryID
 
 	// pendingOutbound is a queue of outbound events.
 	// it must only be accessed while performMu is held
@@ -153,6 +212,13 @@ func NewPublishBehaviour[K kad.Key[K], N kad.NodeID[K], M coordt.Message[K, N]](
 		tracer:    cfg.Tracer,
 
 		verifyResponse: cfg.VerifyResponse,
+
+		keystore:          cfg.Keystore,
+		recordSource:      cfg.RecordSource,
+		regionReplication: cfg.RegionReplication,
+		regionMaxInFlight: cfg.RegionMaxInFlight,
+		regions:           make(map[coordt.QueryID]*publish.RegionPublish[K, N]),
+		children:          make(map[coordt.QueryID]coordt.QueryID),
 	}
 
 	if b.verifyResponse == nil {
@@ -259,6 +325,12 @@ func (b *PublishBehaviour[K, N, M]) Perform(ctx context.Context) (out BehaviourE
 		return ev, true
 	}
 
+	// advance one region publish, startimg the publish it has ready
+	ev, ok = b.advanceRegions(ctx, time.Now())
+	if ok {
+		return ev, true
+	}
+
 	// poll the publish pool to trigger any timeouts and other scheduled work
 	ev, ok = b.advancePool(ctx, time.Now(), &publish.EventPoolPoll{})
 	if ok {
@@ -351,6 +423,23 @@ func (b *PublishBehaviour[K, N, M]) performNextInbound(ctx context.Context) (Beh
 		if ev.Notify != nil {
 			b.notifiers[ev.QueryID] = &queryNotifier[K, N, M, *EventPublishFinished[K, N]]{monitor: ev.Notify}
 		}
+
+	case *EventStartRegionPublish[K, N]:
+		// region publishing needs a keystore to enumerate keys and a way to build their records
+		if b.keystore == nil || b.recordSource == nil {
+			return nil, false
+		}
+		// a region with no nodes can store nothing
+		if len(ev.Nodes) == 0 {
+			return nil, false
+		}
+		keys := slices.Collect(b.keystore.KeysUnder(ev.Prefix))
+		if len(keys) == 0 {
+			return nil, false
+		}
+		b.regions[ev.QueryID] = publish.NewRegion(ev.QueryID, keys, ev.Nodes, b.regionReplication, b.regionMaxInFlight, b.tracer)
+		// the region step in Perform starts the first key
+		return nil, false
 
 	case *EventGetCloserNodesSuccess[K, N]:
 		for _, info := range ev.CloserNodes {
@@ -478,6 +567,14 @@ func (b *PublishBehaviour[K, N, M]) advancePool(ctx context.Context, now time.Ti
 		// the state carries no due time and the pool has removed the publish, so the
 		// pool must be advanced again to report when the remaining publishes are next due
 		b.pollAgain = true
+
+		// a finished publish that belongs to a region frees that region's slot
+		if regionID, ok := b.children[st.QueryID]; ok {
+			delete(b.children, st.QueryID)
+			b.advanceRegion(ctx, now, regionID, &publish.EventRegionKeyDone{ChildID: st.QueryID})
+			return nil, false
+		}
+
 		waiter, ok := b.notifiers[st.QueryID]
 		if ok {
 			waiter.NotifyFinished(ctx, &EventPublishFinished[K, N]{
@@ -488,6 +585,47 @@ func (b *PublishBehaviour[K, N, M]) advancePool(ctx context.Context, now time.Ti
 			})
 			delete(b.notifiers, st.QueryID)
 		}
+	}
+
+	return nil, false
+}
+
+// advanceRegions advances one region publish, returning the outbound event it produced, if any.
+// Each region is polled in turn until one starts a per-key publish; regions that have nothing to
+// start are skipped, and a region that has finished is dropped.
+func (b *PublishBehaviour[K, N, M]) advanceRegions(ctx context.Context, now time.Time) (BehaviourEvent, bool) {
+	for regionID := range b.regions {
+		ev, ok := b.advanceRegion(ctx, now, regionID, &publish.EventRegionPoll{})
+		if ok {
+			return ev, true
+		}
+	}
+	return nil, false
+}
+
+// advanceRegion advances the region publish with the given id and acts on the state it reports. A
+// [publish.StateRegionStartKey] starts a static publish for the key in the shared pool; a
+// [publish.StateRegionFinished] drops the region.
+func (b *PublishBehaviour[K, N, M]) advanceRegion(ctx context.Context, now time.Time, regionID coordt.QueryID, rev publish.RegionEvent) (BehaviourEvent, bool) {
+	rp, ok := b.regions[regionID]
+	if !ok {
+		return nil, false
+	}
+
+	switch st := rp.Advance(ctx, now, rev).(type) {
+	case *publish.StateRegionStartKey[K, N]:
+		b.children[st.ChildID] = regionID
+		return b.advancePool(ctx, now, &publish.EventPoolStartStatic[K, N, M]{
+			QueryID: st.ChildID,
+			Target:  st.Target,
+			Message: b.recordSource(st.Target),
+			Nodes:   st.Nodes,
+		})
+	case *publish.StateRegionFinished:
+		// TODO: record the region's last-provided time before dropping the region
+		delete(b.regions, regionID)
+	case *publish.StateRegionWaiting:
+		// nothing to start now; a per-key publish finishing frees a slot
 	}
 
 	return nil, false

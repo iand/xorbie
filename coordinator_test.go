@@ -8,12 +8,14 @@ import (
 	"testing/synctest"
 	"time"
 
+	"github.com/ipfs/go-libdht/kad/key/bitstr"
 	"github.com/ipfs/go-libdht/kad/triert"
 	"github.com/stretchr/testify/require"
 
 	"github.com/iand/xorbie/coordt"
 	"github.com/iand/xorbie/internal/kadtest"
 	"github.com/iand/xorbie/internal/tiny"
+	"github.com/iand/xorbie/keystore"
 	"github.com/iand/xorbie/netsize"
 )
 
@@ -658,4 +660,133 @@ func TestCoordinatorPublishStaticReportsNoLookup(t *testing.T) {
 		require.Equal(t, 2, stats.StoreRequests)
 		require.Equal(t, 2, stats.StoreSuccess)
 	})
+}
+
+// regionRecordContent tags the messages a region publish sends, so the recording router can pick
+// them out from the survey's find-closer traffic.
+const regionRecordContent = "region-record"
+
+// regionTarget mints a survey target for a region by placing its prefix bits in the high bits of a
+// tiny key.
+func regionTarget(region bitstr.Key) (tiny.Key, error) {
+	var v uint8
+	for i := range len(region) {
+		v <<= 1
+		if region.Bit(i) == 1 {
+			v |= 1
+		}
+	}
+	v <<= (8 - len(region))
+	return tiny.Key(v), nil
+}
+
+// recordingRouter wraps a router and records the store messages sent through it.
+type recordingRouter struct {
+	inner  coordt.Router[tiny.Key, tiny.Node, tiny.Message]
+	mu     sync.Mutex
+	stores []regionStore
+}
+
+type regionStore struct {
+	key tiny.Key
+	to  tiny.Node
+}
+
+var _ coordt.Router[tiny.Key, tiny.Node, tiny.Message] = (*recordingRouter)(nil)
+
+func (r *recordingRouter) SendMessage(ctx context.Context, to tiny.Node, req tiny.Message) (tiny.Message, error) {
+	if req.Content == regionRecordContent {
+		r.mu.Lock()
+		r.stores = append(r.stores, regionStore{key: req.TargetKey, to: to})
+		r.mu.Unlock()
+	}
+	return r.inner.SendMessage(ctx, to, req)
+}
+
+func (r *recordingRouter) GetClosestNodes(ctx context.Context, to tiny.Node, target tiny.Key) ([]tiny.Node, error) {
+	return r.inner.GetClosestNodes(ctx, to, target)
+}
+
+func (r *recordingRouter) storedWith() map[tiny.Key][]tiny.Node {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	out := map[tiny.Key][]tiny.Node{}
+	for _, s := range r.stores {
+		out[s.key] = append(out[s.key], s.to)
+	}
+	return out
+}
+
+// TestCoordinatorRegionSurveyTriggersPublish drives the region publishing path end to end.
+func TestCoordinatorRegionSurveyTriggersPublish(t *testing.T) {
+	ctx := kadtest.CtxShort(t)
+
+	_, nodes, err := linearTopology(4)
+	require.NoError(t, err)
+
+	self := nodes[0].NodeID
+
+	// seed the local routing table with the other nodes so the survey has somewhere to walk from
+	for _, n := range nodes[1:] {
+		nodes[0].RoutingTable.AddNode(n.NodeID)
+	}
+
+	ks := keystore.New[tiny.Key]()
+	keys := []tiny.Key{0b0000_0001, 0b0100_0000, 0b1000_0001}
+	for _, k := range keys {
+		ks.Add(k)
+	}
+
+	rtr := &recordingRouter{inner: nodes[0].Router}
+
+	ccfg := DefaultCoordinatorConfig[tiny.Key, tiny.Node, tiny.Message]()
+	ccfg.ReplicationFactor = 2
+	ccfg.Routing.EnableSurvey = true
+	ccfg.Routing.SurveyTargetFunc = regionTarget
+	ccfg.Routing.SurveyInitialPrefixLen = 0
+	ccfg.Publish.Keystore = ks
+	ccfg.Publish.RecordSource = func(k tiny.Key) tiny.Message {
+		return tiny.Message{Content: regionRecordContent, TargetKey: k}
+	}
+
+	c, err := NewCoordinator(self, rtr, nodes[0].RoutingTable, ccfg)
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, c.Close()) })
+
+	rn := NewBufferedRoutingNotifier[tiny.Key, tiny.Node]()
+	c.SetRoutingNotifier(rn)
+
+	// the survey of the single region finishes and travels out as a region surveyed notification
+	ev, err := rn.Expect(ctx, &EventRegionSurveyed[tiny.Key, tiny.Node]{})
+	require.NoError(t, err)
+	surveyed := ev.(*EventRegionSurveyed[tiny.Key, tiny.Node])
+	require.NotEmpty(t, surveyed.Nodes, "the survey should have found nodes in the region")
+
+	members := map[string]bool{}
+	for _, n := range surveyed.Nodes {
+		members[n.String()] = true
+	}
+
+	// the region publish stores every provided key
+	require.Eventually(t, func() bool {
+		stored := rtr.storedWith()
+		for _, k := range keys {
+			if len(stored[k]) == 0 {
+				return false
+			}
+		}
+		return true
+	}, time.Second, time.Millisecond, "every provided key should be stored")
+
+	// every node a key was stored with belongs to the surveyed region and is used only once per key
+	for k, tos := range rtr.storedWith() {
+		require.LessOrEqual(t, len(tos), ccfg.ReplicationFactor, "a key is stored with at most the replication factor of nodes")
+		seen := map[string]bool{}
+		for _, to := range tos {
+			require.True(t, members[to.String()], "a stored node must belong to the surveyed region")
+			require.False(t, seen[to.String()], "a key must not be stored with the same node twice")
+			seen[to.String()] = true
+		}
+		require.Contains(t, keys, k, "only provided keys are stored")
+	}
 }
