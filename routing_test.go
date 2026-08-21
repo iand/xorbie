@@ -381,7 +381,7 @@ func TestRoutingBootstrapRequestConcurrency(t *testing.T) {
 
 	var requested []tiny.Node
 	for _, ev := range evs {
-		if oev, ok := ev.(*EventOutboundGetCloserNodes[tiny.Key, tiny.Node]); ok && oev.QueryID == routing.BootstrapQueryID {
+		if oev, ok := ev.(*EventOutboundGetCloserNodes[tiny.Key, tiny.Node]); ok && oev.ActivityID == routing.BootstrapActivityID {
 			requested = append(requested, oev.To)
 		}
 	}
@@ -405,7 +405,7 @@ func TestRoutingBootstrapGetClosestNodesSuccess(t *testing.T) {
 	require.NoError(t, err)
 
 	ev := &EventGetCloserNodesSuccess[tiny.Key, tiny.Node]{
-		QueryID:     routing.BootstrapQueryID,
+		ActivityID:  routing.BootstrapActivityID,
 		To:          nodes[1].NodeID,
 		Target:      nodes[0].NodeID.Key(),
 		CloserNodes: []tiny.Node{nodes[2].NodeID},
@@ -439,10 +439,10 @@ func TestRoutingBootstrapGetClosestNodesFailure(t *testing.T) {
 
 	failure := errors.New("failed")
 	ev := &EventGetCloserNodesFailure[tiny.Key, tiny.Node]{
-		QueryID: routing.BootstrapQueryID,
-		To:      nodes[1].NodeID,
-		Target:  nodes[0].NodeID.Key(),
-		Err:     failure,
+		ActivityID: routing.BootstrapActivityID,
+		To:         nodes[1].NodeID,
+		Target:     nodes[0].NodeID.Key(),
+		Err:        failure,
 	}
 
 	routingBehaviour.Notify(ctx, ev)
@@ -501,7 +501,7 @@ func TestRoutingIncludeGetClosestNodesSuccess(t *testing.T) {
 	require.NoError(t, err)
 
 	ev := &EventGetCloserNodesSuccess[tiny.Key, tiny.Node]{
-		QueryID:     coordt.QueryID("include"),
+		ActivityID:  coordt.ActivityID("include"),
 		To:          nodes[1].NodeID,
 		Target:      nodes[0].NodeID.Key(),
 		CloserNodes: []tiny.Node{nodes[2].NodeID},
@@ -534,10 +534,10 @@ func TestRoutingIncludeGetClosestNodesFailure(t *testing.T) {
 
 	failure := errors.New("failed")
 	ev := &EventGetCloserNodesFailure[tiny.Key, tiny.Node]{
-		QueryID: coordt.QueryID("include"),
-		To:      nodes[1].NodeID,
-		Target:  nodes[0].NodeID.Key(),
-		Err:     failure,
+		ActivityID: coordt.ActivityID("include"),
+		To:         nodes[1].NodeID,
+		Target:     nodes[0].NodeID.Key(),
+		Err:        failure,
 	}
 
 	routingBehaviour.Notify(ctx, ev)
@@ -602,7 +602,7 @@ func TestRoutingIncludedNodeAddToProbeList(t *testing.T) {
 
 		// notify a successful response back (best to use the notify included in the event even though it will be the behaviour's Notify method)
 		oev.Notify.Notify(ctx, &EventGetCloserNodesSuccess[tiny.Key, tiny.Node]{
-			QueryID:     oev.QueryID,
+			ActivityID:  oev.ActivityID,
 			To:          oev.To,
 			Target:      oev.Target,
 			CloserNodes: []tiny.Node{nodes[1].NodeID}, // must include one for include check to pass
@@ -630,7 +630,7 @@ func TestRoutingIncludedNodeAddToProbeList(t *testing.T) {
 
 		// confirm that the message is for the correct node
 		oev = dev.(*EventOutboundGetCloserNodes[tiny.Key, tiny.Node])
-		require.Equal(t, coordt.QueryID("probe"), oev.QueryID)
+		require.Equal(t, coordt.ActivityID("probe"), oev.ActivityID)
 		require.Equal(t, candidate, oev.To)
 	})
 }
@@ -669,7 +669,7 @@ func TestRoutingExploreSendsEvent(t *testing.T) {
 	require.IsType(t, &EventOutboundGetCloserNodes[tiny.Key, tiny.Node]{}, dev)
 	gcl := dev.(*EventOutboundGetCloserNodes[tiny.Key, tiny.Node])
 
-	require.Equal(t, routing.ExploreQueryID, gcl.QueryID)
+	require.Equal(t, routing.ExploreActivityID, gcl.ActivityID)
 
 	// the message should be looking for nodes closer to a key that occupies the maximum cpl
 	require.Equal(t, maxCpl, self.Key().CommonPrefixLength(gcl.Target))
@@ -691,7 +691,7 @@ func TestRoutingExploreGetClosestNodesSuccess(t *testing.T) {
 	require.NoError(t, err)
 
 	ev := &EventGetCloserNodesSuccess[tiny.Key, tiny.Node]{
-		QueryID:     routing.ExploreQueryID,
+		ActivityID:  routing.ExploreActivityID,
 		To:          nodes[1].NodeID,
 		Target:      nodes[0].NodeID.Key(),
 		CloserNodes: []tiny.Node{nodes[2].NodeID},
@@ -724,10 +724,10 @@ func TestRoutingExploreGetClosestNodesFailure(t *testing.T) {
 
 	failure := errors.New("failed")
 	ev := &EventGetCloserNodesFailure[tiny.Key, tiny.Node]{
-		QueryID: routing.ExploreQueryID,
-		To:      nodes[1].NodeID,
-		Target:  nodes[0].NodeID.Key(),
-		Err:     failure,
+		ActivityID: routing.ExploreActivityID,
+		To:         nodes[1].NodeID,
+		Target:     nodes[0].NodeID.Key(),
+		Err:        failure,
 	}
 
 	routingBehaviour.Notify(ctx, ev)
@@ -771,9 +771,9 @@ func TestRoutingSurveySendsEvent(t *testing.T) {
 
 	// a survey that wants to find closer nodes for a target inside a region
 	survey := NewRecordingSM[routing.SurveyEvent, routing.SurveyState](&routing.StateSurveyFindCloser[tiny.Key, tiny.Node]{
-		QueryID: routing.SurveyQueryID,
-		Target:  self.Key(),
-		NodeID:  nodes[1].NodeID,
+		ActivityID: routing.SurveyActivityID,
+		Target:     self.Key(),
+		NodeID:     nodes[1].NodeID,
 	})
 
 	cfg := DefaultRoutingConfig[tiny.Key, tiny.Node]()
@@ -788,7 +788,7 @@ func TestRoutingSurveySendsEvent(t *testing.T) {
 	// the survey should be asking to send a message to the node
 	require.IsType(t, &EventOutboundGetCloserNodes[tiny.Key, tiny.Node]{}, dev)
 	gcl := dev.(*EventOutboundGetCloserNodes[tiny.Key, tiny.Node])
-	require.Equal(t, routing.SurveyQueryID, gcl.QueryID)
+	require.Equal(t, routing.SurveyActivityID, gcl.ActivityID)
 	require.Equal(t, nodes[1].NodeID, gcl.To)
 	require.Equal(t, self.Key(), gcl.Target)
 }
@@ -841,7 +841,7 @@ func TestRoutingSurveyGetCloserNodesSuccess(t *testing.T) {
 	require.NoError(t, err)
 
 	ev := &EventGetCloserNodesSuccess[tiny.Key, tiny.Node]{
-		QueryID:     routing.SurveyQueryID,
+		ActivityID:  routing.SurveyActivityID,
 		To:          nodes[1].NodeID,
 		Target:      nodes[0].NodeID.Key(),
 		CloserNodes: []tiny.Node{nodes[2].NodeID},
@@ -873,10 +873,10 @@ func TestRoutingSurveyGetCloserNodesFailure(t *testing.T) {
 
 	failure := errors.New("failed")
 	ev := &EventGetCloserNodesFailure[tiny.Key, tiny.Node]{
-		QueryID: routing.SurveyQueryID,
-		To:      nodes[1].NodeID,
-		Target:  nodes[0].NodeID.Key(),
-		Err:     failure,
+		ActivityID: routing.SurveyActivityID,
+		To:         nodes[1].NodeID,
+		Target:     nodes[0].NodeID.Key(),
+		Err:        failure,
 	}
 
 	routingBehaviour.Notify(ctx, ev)
@@ -1016,14 +1016,14 @@ func TestRoutingProbeKeepsNodeWhenCheckDropped(t *testing.T) {
 		require.IsType(t, &EventOutboundGetCloserNodes[tiny.Key, tiny.Node]{}, dev)
 
 		oev := dev.(*EventOutboundGetCloserNodes[tiny.Key, tiny.Node])
-		require.Equal(t, ProbeQueryID, oev.QueryID)
+		require.Equal(t, routing.ProbeActivityID, oev.ActivityID)
 		require.Equal(t, checked, oev.To)
 
 		oev.Notify.Notify(ctx, &EventGetCloserNodesFailure[tiny.Key, tiny.Node]{
-			QueryID: oev.QueryID,
-			To:      oev.To,
-			Target:  oev.Target,
-			Err:     ErrRequestDropped,
+			ActivityID: oev.ActivityID,
+			To:         oev.To,
+			Target:     oev.Target,
+			Err:        ErrRequestDropped,
 		})
 		DrainBehaviour(t, ctx, routingBehaviour)
 

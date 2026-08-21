@@ -13,7 +13,7 @@ import (
 var _ coordt.StateMachine[RegionEvent, RegionState] = (*RegionPublish[tiny.Key, tiny.Node])(nil)
 
 // testRegionID is the id a region publish under test derives its child ids from.
-const testRegionID = coordt.QueryID("region")
+const testRegionID = coordt.ActivityID("region")
 
 // newRegionTest creates a RegionPublish for the region id "region" over keys, storing each with
 // its r closest nodes and running at most cap per-key publishes at once.
@@ -35,7 +35,7 @@ func TestRegionStartsEveryKeyOnce(t *testing.T) {
 	sm := newRegionTest(t, keys, nodes, 2, len(keys))
 
 	started := make(map[tiny.Key]bool, len(keys))
-	children := make([]coordt.QueryID, 0, len(keys))
+	children := make([]coordt.ActivityID, 0, len(keys))
 
 	state := sm.Advance(ctx, now, &EventRegionPoll{})
 	for range keys {
@@ -75,7 +75,7 @@ func TestRegionMintsUniqueChildIDs(t *testing.T) {
 
 	sm := newRegionTest(t, keys, nodes, 1, len(keys))
 
-	seen := make(map[coordt.QueryID]bool, len(keys))
+	seen := make(map[coordt.ActivityID]bool, len(keys))
 	state := sm.Advance(ctx, now, &EventRegionPoll{})
 	for range keys {
 		st, ok := state.(*StateRegionStartKey[tiny.Key, tiny.Node])
@@ -233,6 +233,6 @@ func TestRegionIgnoresUnknownChildDone(t *testing.T) {
 	require.IsType(t, &StateRegionStartKey[tiny.Key, tiny.Node]{}, state)
 
 	// a done for an id the region never handed out must not free the occupied slot
-	state = sm.Advance(ctx, now, &EventRegionKeyDone{ChildID: coordt.QueryID("bogus")})
+	state = sm.Advance(ctx, now, &EventRegionKeyDone{ChildID: coordt.ActivityID("bogus")})
 	require.IsType(t, &StateRegionWaiting{}, state)
 }

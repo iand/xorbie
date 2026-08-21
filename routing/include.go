@@ -22,6 +22,9 @@ type check[K kad.Key[K], N kad.NodeID[K]] struct {
 	Deadline time.Time
 }
 
+// IncludeActivityID is the id for the activity operated by the include process.
+const IncludeActivityID = coordt.ActivityID("include")
+
 type Include[K kad.Key[K], N kad.NodeID[K]] struct {
 	rt kad.RoutingTable[K, N]
 

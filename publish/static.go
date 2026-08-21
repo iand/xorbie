@@ -30,8 +30,8 @@ import (
 // The [EventPublishStop] event abandons the operation, recording every node not yet
 // contacted or not yet heard from as having failed.
 type Static[K kad.Key[K], N kad.NodeID[K], M coordt.Message[K, N]] struct {
-	// queryID is the unique id of this publish operation
-	queryID coordt.QueryID
+	// activityID is the unique id of this publish operation
+	activityID coordt.ActivityID
 
 	// msg is the message sent to each node to store the record
 	msg M
@@ -62,15 +62,15 @@ type Static[K kad.Key[K], N kad.NodeID[K], M coordt.Message[K, N]] struct {
 
 // NewStatic creates a state machine that publishes msg to nodes, reporting progress under the
 // query id qid.
-func NewStatic[K kad.Key[K], N kad.NodeID[K], M coordt.Message[K, N]](qid coordt.QueryID, msg M, nodes []N, tracer trace.Tracer) *Static[K, N, M] {
+func NewStatic[K kad.Key[K], N kad.NodeID[K], M coordt.Message[K, N]](qid coordt.ActivityID, msg M, nodes []N, tracer trace.Tracer) *Static[K, N, M] {
 	return &Static[K, N, M]{
-		queryID: qid,
-		nodes:   nodes,
-		tracer:  tracer,
-		msg:     msg,
-		todo:    map[string]N{},
-		waiting: map[string]N{},
-		success: map[string]N{},
+		activityID: qid,
+		nodes:      nodes,
+		tracer:     tracer,
+		msg:        msg,
+		todo:       map[string]N{},
+		waiting:    map[string]N{},
+		success:    map[string]N{},
 		failed: map[string]struct {
 			Node N
 			Err  error
@@ -133,9 +133,9 @@ func (f *Static[K, N, M]) Advance(ctx context.Context, now time.Time, ev Publish
 		delete(f.todo, k)
 		f.waiting[k] = n
 		return &StatePublishStoreRecord[K, N, M]{
-			QueryID: f.queryID,
-			NodeID:  n,
-			Message: f.msg,
+			ActivityID: f.activityID,
+			NodeID:     n,
+			Message:    f.msg,
 		}
 	}
 
@@ -154,8 +154,8 @@ func (f *Static[K, N, M]) Advance(ctx context.Context, now time.Time, ev Publish
 	}
 
 	return &StatePublishFinished[K, N]{
-		QueryID:   f.queryID,
-		Contacted: contacted,
-		Errors:    f.failed,
+		ActivityID: f.activityID,
+		Contacted:  contacted,
+		Errors:     f.failed,
 	}
 }

@@ -15,7 +15,7 @@ type Pool[K kad.Key[K], N kad.NodeID[K], M coordt.Message[K, N]] struct {
 	// self is the node id of the system the pool is running on
 	self       N
 	queries    []*Query[K, N, M]
-	queryIndex map[coordt.QueryID]*Query[K, N, M]
+	queryIndex map[coordt.ActivityID]*Query[K, N, M]
 
 	// cfg is a copy of the optional configuration supplied to the pool
 	cfg PoolConfig
@@ -105,7 +105,7 @@ func NewPool[K kad.Key[K], N kad.NodeID[K], M coordt.Message[K, N]](self N, cfg 
 		self:       self,
 		cfg:        *cfg,
 		queries:    make([]*Query[K, N, M], 0),
-		queryIndex: make(map[coordt.QueryID]*Query[K, N, M]),
+		queryIndex: make(map[coordt.ActivityID]*Query[K, N, M]),
 	}, nil
 }
 
@@ -117,26 +117,26 @@ func (p *Pool[K, N, M]) Advance(ctx context.Context, now time.Time, ev PoolEvent
 	// reset the in flight counter so it can be calculated as the queries are advanced
 	p.queriesInFlight = 0
 
-	// eventQueryID keeps track of a query that was advanced via a specific event, to avoid it
+	// eventActivityID keeps track of a query that was advanced via a specific event, to avoid it
 	// being advanced twice
-	eventQueryID := coordt.InvalidQueryID
+	eventActivityID := coordt.InvalidActivityID
 
 	switch tev := ev.(type) {
 	case *EventPoolAddFindCloserQuery[K, N]:
-		p.addFindCloserQuery(ctx, tev.QueryID, tev.Target, tev.Seed, tev.NumResults)
+		p.addFindCloserQuery(ctx, tev.ActivityID, tev.Target, tev.Seed, tev.NumResults)
 	case *EventPoolAddQuery[K, N, M]:
-		p.addQuery(ctx, tev.QueryID, tev.Target, tev.Message, tev.Seed, tev.NumResults)
+		p.addQuery(ctx, tev.ActivityID, tev.Target, tev.Message, tev.Seed, tev.NumResults)
 		// TODO: return error as state
 	case *EventPoolStopQuery:
-		if qry, ok := p.queryIndex[tev.QueryID]; ok {
+		if qry, ok := p.queryIndex[tev.ActivityID]; ok {
 			state, terminal := p.advanceQuery(ctx, now, qry, &EventQueryCancel{})
 			if terminal {
 				return state
 			}
-			eventQueryID = qry.id
+			eventActivityID = qry.id
 		}
 	case *EventPoolNodeResponse[K, N]:
-		if qry, ok := p.queryIndex[tev.QueryID]; ok {
+		if qry, ok := p.queryIndex[tev.ActivityID]; ok {
 			state, terminal := p.advanceQuery(ctx, now, qry, &EventQueryNodeResponse[K, N]{
 				NodeID:      tev.NodeID,
 				CloserNodes: tev.CloserNodes,
@@ -144,10 +144,10 @@ func (p *Pool[K, N, M]) Advance(ctx context.Context, now time.Time, ev PoolEvent
 			if terminal {
 				return state
 			}
-			eventQueryID = qry.id
+			eventActivityID = qry.id
 		}
 	case *EventPoolNodeFailure[K, N]:
-		if qry, ok := p.queryIndex[tev.QueryID]; ok {
+		if qry, ok := p.queryIndex[tev.ActivityID]; ok {
 			state, terminal := p.advanceQuery(ctx, now, qry, &EventQueryNodeFailure[K, N]{
 				NodeID: tev.NodeID,
 				Error:  tev.Error,
@@ -155,7 +155,7 @@ func (p *Pool[K, N, M]) Advance(ctx context.Context, now time.Time, ev PoolEvent
 			if terminal {
 				return state
 			}
-			eventQueryID = qry.id
+			eventActivityID = qry.id
 		}
 	case *EventPoolPoll:
 		// no event to process
@@ -169,7 +169,7 @@ func (p *Pool[K, N, M]) Advance(ctx context.Context, now time.Time, ev PoolEvent
 
 	// Attempt to advance another query
 	for _, qry := range p.queries {
-		if eventQueryID == qry.id {
+		if eventActivityID == qry.id {
 			// avoid advancing query twice
 			continue
 		}
@@ -221,23 +221,23 @@ func (p *Pool[K, N, M]) advanceQuery(ctx context.Context, now time.Time, qry *Qu
 	case *StateQueryFindCloser[K, N]:
 		p.queriesInFlight++
 		return &StatePoolFindCloser[K, N]{
-			QueryID: st.QueryID,
-			Stats:   st.Stats,
-			NodeID:  st.NodeID,
-			Target:  st.Target,
+			ActivityID: st.ActivityID,
+			Stats:      st.Stats,
+			NodeID:     st.NodeID,
+			Target:     st.Target,
 		}, true
 	case *StateQuerySendMessage[K, N, M]:
 		p.queriesInFlight++
 		return &StatePoolSendMessage[K, N, M]{
-			QueryID: st.QueryID,
-			Stats:   st.Stats,
-			NodeID:  st.NodeID,
-			Message: st.Message,
+			ActivityID: st.ActivityID,
+			Stats:      st.Stats,
+			NodeID:     st.NodeID,
+			Message:    st.Message,
 		}, true
 	case *StateQueryFinished[K, N]:
 		p.removeQuery(qry.id)
 		return &StatePoolQueryFinished[K, N]{
-			QueryID:      st.QueryID,
+			ActivityID:   st.ActivityID,
 			Stats:        st.Stats,
 			Target:       st.Target,
 			ClosestNodes: st.ClosestNodes,
@@ -246,8 +246,8 @@ func (p *Pool[K, N, M]) advanceQuery(ctx context.Context, now time.Time, qry *Qu
 		if now.After(st.Deadline) {
 			p.removeQuery(qry.id)
 			return &StatePoolQueryTimeout{
-				QueryID: st.QueryID,
-				Stats:   st.Stats,
+				ActivityID: st.ActivityID,
+				Stats:      st.Stats,
 			}, true
 		}
 		p.queriesInFlight++
@@ -255,8 +255,8 @@ func (p *Pool[K, N, M]) advanceQuery(ctx context.Context, now time.Time, qry *Qu
 		if now.After(st.Deadline) {
 			p.removeQuery(qry.id)
 			return &StatePoolQueryTimeout{
-				QueryID: st.QueryID,
-				Stats:   st.Stats,
+				ActivityID: st.ActivityID,
+				Stats:      st.Stats,
 			}, true
 		}
 		p.queriesInFlight++
@@ -264,9 +264,9 @@ func (p *Pool[K, N, M]) advanceQuery(ctx context.Context, now time.Time, qry *Qu
 	return nil, false
 }
 
-func (p *Pool[K, N, M]) removeQuery(queryID coordt.QueryID) {
+func (p *Pool[K, N, M]) removeQuery(activityID coordt.ActivityID) {
 	for i := range p.queries {
-		if p.queries[i].id != queryID {
+		if p.queries[i].id != activityID {
 			continue
 		}
 		// remove from slice
@@ -275,13 +275,13 @@ func (p *Pool[K, N, M]) removeQuery(queryID coordt.QueryID) {
 		p.queries = p.queries[:len(p.queries)-1]
 		break
 	}
-	delete(p.queryIndex, queryID)
+	delete(p.queryIndex, activityID)
 }
 
 // Stats returns the stats accumulated so far by the query with the given id. The bool result is
 // false if no query with that id is running in the pool.
-func (p *Pool[K, N, M]) Stats(queryID coordt.QueryID) (QueryStats, bool) {
-	qry, ok := p.queryIndex[queryID]
+func (p *Pool[K, N, M]) Stats(activityID coordt.ActivityID) (QueryStats, bool) {
+	qry, ok := p.queryIndex[activityID]
 	if !ok {
 		return QueryStats{}, false
 	}
@@ -290,8 +290,8 @@ func (p *Pool[K, N, M]) Stats(queryID coordt.QueryID) (QueryStats, bool) {
 
 // addQuery adds a query to the pool, returning the new query id
 // TODO: remove target argument and use msg.Target
-func (p *Pool[K, N, M]) addQuery(ctx context.Context, queryID coordt.QueryID, target K, msg M, knownClosestNodes []N, numResults int) error {
-	if _, exists := p.queryIndex[queryID]; exists {
+func (p *Pool[K, N, M]) addQuery(ctx context.Context, activityID coordt.ActivityID, target K, msg M, knownClosestNodes []N, numResults int) error {
+	if _, exists := p.queryIndex[activityID]; exists {
 		return fmt.Errorf("query id already in use")
 	}
 	iter := NewClosestNodesIter[K, N](target)
@@ -306,20 +306,20 @@ func (p *Pool[K, N, M]) addQuery(ctx context.Context, queryID coordt.QueryID, ta
 		qryCfg.NumResults = numResults
 	}
 
-	qry, err := NewQuery(p.self, queryID, target, msg, iter, knownClosestNodes, qryCfg)
+	qry, err := NewQuery(p.self, activityID, target, msg, iter, knownClosestNodes, qryCfg)
 	if err != nil {
 		return fmt.Errorf("new query: %w", err)
 	}
 
 	p.queries = append(p.queries, qry)
-	p.queryIndex[queryID] = qry
+	p.queryIndex[activityID] = qry
 
 	return nil
 }
 
 // addQuery adds a find closer query to the pool, returning the new query id
-func (p *Pool[K, N, M]) addFindCloserQuery(ctx context.Context, queryID coordt.QueryID, target K, knownClosestNodes []N, numResults int) error {
-	if _, exists := p.queryIndex[queryID]; exists {
+func (p *Pool[K, N, M]) addFindCloserQuery(ctx context.Context, activityID coordt.ActivityID, target K, knownClosestNodes []N, numResults int) error {
+	if _, exists := p.queryIndex[activityID]; exists {
 		return fmt.Errorf("query id already in use")
 	}
 	iter := NewClosestNodesIter[K, N](target)
@@ -334,13 +334,13 @@ func (p *Pool[K, N, M]) addFindCloserQuery(ctx context.Context, queryID coordt.Q
 		qryCfg.NumResults = numResults
 	}
 
-	qry, err := NewFindCloserQuery[K, N, M](p.self, queryID, target, iter, knownClosestNodes, qryCfg)
+	qry, err := NewFindCloserQuery[K, N, M](p.self, activityID, target, iter, knownClosestNodes, qryCfg)
 	if err != nil {
 		return fmt.Errorf("new query: %w", err)
 	}
 
 	p.queries = append(p.queries, qry)
-	p.queryIndex[queryID] = qry
+	p.queryIndex[activityID] = qry
 
 	return nil
 }
@@ -358,18 +358,18 @@ type StatePoolIdle struct {
 
 // StatePoolFindCloser indicates that a pool query wants to send a find closer nodes message to a node.
 type StatePoolFindCloser[K kad.Key[K], N kad.NodeID[K]] struct {
-	QueryID coordt.QueryID
-	Target  K // the key that the query wants to find closer nodes for
-	NodeID  N // the node to send the message to
-	Stats   QueryStats
+	ActivityID coordt.ActivityID
+	Target     K // the key that the query wants to find closer nodes for
+	NodeID     N // the node to send the message to
+	Stats      QueryStats
 }
 
 // StatePoolSendMessage indicates that a pool query wants to send a message to a node.
 type StatePoolSendMessage[K kad.Key[K], N kad.NodeID[K], M coordt.Message[K, N]] struct {
-	QueryID coordt.QueryID
-	NodeID  N // the node to send the message to
-	Message M
-	Stats   QueryStats
+	ActivityID coordt.ActivityID
+	NodeID     N // the node to send the message to
+	Message    M
+	Stats      QueryStats
 }
 
 // StatePoolWaitingAtCapacity indicates that at least one query is waiting for results and the pool has reached
@@ -386,7 +386,7 @@ type StatePoolWaitingWithCapacity struct {
 
 // StatePoolQueryFinished indicates that a query has finished.
 type StatePoolQueryFinished[K kad.Key[K], N kad.NodeID[K]] struct {
-	QueryID      coordt.QueryID
+	ActivityID   coordt.ActivityID
 	Stats        QueryStats
 	Target       K // the key the query was looking for the closest nodes to
 	ClosestNodes []N
@@ -394,8 +394,8 @@ type StatePoolQueryFinished[K kad.Key[K], N kad.NodeID[K]] struct {
 
 // StatePoolQueryTimeout indicates that a query has timed out.
 type StatePoolQueryTimeout struct {
-	QueryID coordt.QueryID
-	Stats   QueryStats
+	ActivityID coordt.ActivityID
+	Stats      QueryStats
 }
 
 // poolState() ensures that only Pool states can be assigned to the PoolState interface.
@@ -414,38 +414,38 @@ type PoolEvent interface {
 
 // EventPoolAddQuery is an event that attempts to add a new query that finds closer nodes to a target key.
 type EventPoolAddFindCloserQuery[K kad.Key[K], N kad.NodeID[K]] struct {
-	QueryID    coordt.QueryID // the id to use for the new query
-	Target     K              // the target key for the query
-	Seed       []N            // an initial set of close nodes the query should use
-	NumResults int            // the minimum number of nodes to successfully contact before considering iteration complete
+	ActivityID coordt.ActivityID // the id to use for the new query
+	Target     K                 // the target key for the query
+	Seed       []N               // an initial set of close nodes the query should use
+	NumResults int               // the minimum number of nodes to successfully contact before considering iteration complete
 }
 
 // EventPoolAddQuery is an event that attempts to add a new query that sends a message.
 type EventPoolAddQuery[K kad.Key[K], N kad.NodeID[K], M coordt.Message[K, N]] struct {
-	QueryID    coordt.QueryID // the id to use for the new query
-	Target     K              // the target key for the query
-	Message    M              // message to be sent to each node
-	Seed       []N            // an initial set of close nodes the query should use
-	NumResults int            // the minimum number of nodes to successfully contact before considering iteration complete
+	ActivityID coordt.ActivityID // the id to use for the new query
+	Target     K                 // the target key for the query
+	Message    M                 // message to be sent to each node
+	Seed       []N               // an initial set of close nodes the query should use
+	NumResults int               // the minimum number of nodes to successfully contact before considering iteration complete
 }
 
 // EventPoolStopQuery notifies a [Pool] to stop a query.
 type EventPoolStopQuery struct {
-	QueryID coordt.QueryID // the id of the query that should be stopped
+	ActivityID coordt.ActivityID // the id of the query that should be stopped
 }
 
 // EventPoolNodeResponse notifies a [Pool] that an attempt to contact a node has received a successful response.
 type EventPoolNodeResponse[K kad.Key[K], N kad.NodeID[K]] struct {
-	QueryID     coordt.QueryID // the id of the query that sent the message
-	NodeID      N              // the node the message was sent to
-	CloserNodes []N            // the closer nodes sent by the node
+	ActivityID  coordt.ActivityID // the id of the query that sent the message
+	NodeID      N                 // the node the message was sent to
+	CloserNodes []N               // the closer nodes sent by the node
 }
 
 // EventPoolNodeFailure notifies a [Pool] that an attempt to contact a node has failed.
 type EventPoolNodeFailure[K kad.Key[K], N kad.NodeID[K]] struct {
-	QueryID coordt.QueryID // the id of the query that sent the message
-	NodeID  N              // the node the message was sent to
-	Error   error          // the error that caused the failure, if any
+	ActivityID coordt.ActivityID // the id of the query that sent the message
+	NodeID     N                 // the node the message was sent to
+	Error      error             // the error that caused the failure, if any
 }
 
 // EventPoolPoll is an event that signals the pool that it can perform housekeeping work such as time out queries.

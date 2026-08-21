@@ -156,12 +156,12 @@ type PublishBehaviour[K kad.Key[K], N kad.NodeID[K], M coordt.Message[K, N]] str
 
 	// regions holds every running region publish, keyed by its region id.
 	// it must only be accessed while performMu is held
-	regions map[coordt.QueryID]*publish.RegionPublish[K, N]
+	regions map[coordt.ActivityID]*publish.RegionPublish[K, N]
 
 	// children records which region started each per-key publish, keyed by the
 	// publish operation's activity id
 	// it must only be accessed while performMu is held
-	children map[coordt.QueryID]coordt.QueryID
+	children map[coordt.ActivityID]coordt.ActivityID
 
 	// pendingOutbound is a queue of outbound events.
 	// it must only be accessed while performMu is held
@@ -169,7 +169,7 @@ type PublishBehaviour[K kad.Key[K], N kad.NodeID[K], M coordt.Message[K, N]] str
 
 	// notifiers is a map that keeps track of event notifications for each running publish.
 	// it must only be accessed while performMu is held
-	notifiers map[coordt.QueryID]*queryNotifier[K, N, M, *EventPublishFinished[K, N]]
+	notifiers map[coordt.ActivityID]*queryNotifier[K, N, M, *EventPublishFinished[K, N]]
 
 	// inbound is a bounded queue of inbound events that are awaiting processing
 	inbound *inboundQueue
@@ -205,7 +205,7 @@ func NewPublishBehaviour[K kad.Key[K], N kad.NodeID[K], M coordt.Message[K, N]](
 
 	b := &PublishBehaviour[K, N, M]{
 		pool:      publishPool,
-		notifiers: make(map[coordt.QueryID]*queryNotifier[K, N, M, *EventPublishFinished[K, N]]),
+		notifiers: make(map[coordt.ActivityID]*queryNotifier[K, N, M, *EventPublishFinished[K, N]]),
 		inbound:   newInboundQueue(cfg.QueueCapacity),
 		ready:     make(chan struct{}, 1),
 		logger:    cfg.Logger.With("behaviour", "publish"),
@@ -217,8 +217,8 @@ func NewPublishBehaviour[K kad.Key[K], N kad.NodeID[K], M coordt.Message[K, N]](
 		recordSource:      cfg.RecordSource,
 		regionReplication: cfg.RegionReplication,
 		regionMaxInFlight: cfg.RegionMaxInFlight,
-		regions:           make(map[coordt.QueryID]*publish.RegionPublish[K, N]),
-		children:          make(map[coordt.QueryID]coordt.QueryID),
+		regions:           make(map[coordt.ActivityID]*publish.RegionPublish[K, N]),
+		children:          make(map[coordt.ActivityID]coordt.ActivityID),
 	}
 
 	if b.verifyResponse == nil {
@@ -277,16 +277,16 @@ func (b *PublishBehaviour[K, N, M]) Notify(ctx context.Context, ev BehaviourEven
 // event that starts a publish leaves a caller waiting on its monitor for a terminal event
 // that would otherwise never arrive.
 func (b *PublishBehaviour[K, N, M]) reportDropped(ctx context.Context, ev BehaviourEvent) {
-	var queryID coordt.QueryID
+	var activityID coordt.ActivityID
 	var monitor QueryMonitor[K, N, M, *EventPublishFinished[K, N]]
 
 	switch ev := ev.(type) {
 	case *EventStartFollowUpPublish[K, N, M]:
-		queryID, monitor = ev.QueryID, ev.Notify
+		activityID, monitor = ev.ActivityID, ev.Notify
 	case *EventStartStaticPublish[K, N, M]:
-		queryID, monitor = ev.QueryID, ev.Notify
+		activityID, monitor = ev.ActivityID, ev.Notify
 	case *EventStartOptimisticPublish[K, N, M]:
-		queryID, monitor = ev.QueryID, ev.Notify
+		activityID, monitor = ev.ActivityID, ev.Notify
 	default:
 		return
 	}
@@ -296,7 +296,7 @@ func (b *PublishBehaviour[K, N, M]) reportDropped(ctx context.Context, ev Behavi
 	}
 
 	n := &queryNotifier[K, N, M, *EventPublishFinished[K, N]]{monitor: monitor}
-	n.NotifyFinished(ctx, &EventPublishFinished[K, N]{QueryID: queryID, Err: ErrEventDropped})
+	n.NotifyFinished(ctx, &EventPublishFinished[K, N]{ActivityID: activityID, Err: ErrEventDropped})
 }
 
 func (b *PublishBehaviour[K, N, M]) Perform(ctx context.Context) (out BehaviourEvent, performed bool) {
@@ -392,36 +392,36 @@ func (b *PublishBehaviour[K, N, M]) performNextInbound(ctx context.Context) (Beh
 	switch ev := pev.Event.(type) {
 	case *EventStartFollowUpPublish[K, N, M]:
 		cmd = &publish.EventPoolStartFollowUp[K, N, M]{
-			QueryID: ev.QueryID,
-			Target:  ev.Target,
-			Message: ev.Message,
-			Seed:    ev.KnownClosestNodes,
+			ActivityID: ev.ActivityID,
+			Target:     ev.Target,
+			Message:    ev.Message,
+			Seed:       ev.KnownClosestNodes,
 		}
 		if ev.Notify != nil {
-			b.notifiers[ev.QueryID] = &queryNotifier[K, N, M, *EventPublishFinished[K, N]]{monitor: ev.Notify}
+			b.notifiers[ev.ActivityID] = &queryNotifier[K, N, M, *EventPublishFinished[K, N]]{monitor: ev.Notify}
 		}
 
 	case *EventStartStaticPublish[K, N, M]:
 		cmd = &publish.EventPoolStartStatic[K, N, M]{
-			QueryID: ev.QueryID,
-			Target:  ev.Target,
-			Message: ev.Message,
-			Nodes:   ev.Nodes,
+			ActivityID: ev.ActivityID,
+			Target:     ev.Target,
+			Message:    ev.Message,
+			Nodes:      ev.Nodes,
 		}
 		if ev.Notify != nil {
-			b.notifiers[ev.QueryID] = &queryNotifier[K, N, M, *EventPublishFinished[K, N]]{monitor: ev.Notify}
+			b.notifiers[ev.ActivityID] = &queryNotifier[K, N, M, *EventPublishFinished[K, N]]{monitor: ev.Notify}
 		}
 
 	case *EventStartOptimisticPublish[K, N, M]:
 		cmd = &publish.EventPoolStartOptimistic[K, N, M]{
-			QueryID:     ev.QueryID,
+			ActivityID:  ev.ActivityID,
 			Target:      ev.Target,
 			Message:     ev.Message,
 			Seed:        ev.KnownClosestNodes,
 			NetworkSize: ev.NetworkSize,
 		}
 		if ev.Notify != nil {
-			b.notifiers[ev.QueryID] = &queryNotifier[K, N, M, *EventPublishFinished[K, N]]{monitor: ev.Notify}
+			b.notifiers[ev.ActivityID] = &queryNotifier[K, N, M, *EventPublishFinished[K, N]]{monitor: ev.Notify}
 		}
 
 	case *EventStartRegionPublish[K, N]:
@@ -437,7 +437,7 @@ func (b *PublishBehaviour[K, N, M]) performNextInbound(ctx context.Context) (Beh
 		if len(keys) == 0 {
 			return nil, false
 		}
-		b.regions[ev.QueryID] = publish.NewRegion(ev.QueryID, keys, ev.Nodes, b.regionReplication, b.regionMaxInFlight, b.tracer)
+		b.regions[ev.ActivityID] = publish.NewRegion(ev.ActivityID, keys, ev.Nodes, b.regionReplication, b.regionMaxInFlight, b.tracer)
 		// the region step in Perform starts the first key
 		return nil, false
 
@@ -448,17 +448,17 @@ func (b *PublishBehaviour[K, N, M]) performNextInbound(ctx context.Context) (Beh
 			})
 		}
 
-		waiter, ok := b.notifiers[ev.QueryID]
+		waiter, ok := b.notifiers[ev.ActivityID]
 		if ok {
 			waiter.TryNotifyProgressed(ctx, &EventQueryProgressed[K, N, M]{
-				NodeID:  ev.To,
-				QueryID: ev.QueryID,
+				NodeID:     ev.To,
+				ActivityID: ev.ActivityID,
 			})
 		}
 
 		cmd = &publish.EventPoolGetCloserNodesSuccess[K, N]{
 			NodeID:      ev.To,
-			QueryID:     ev.QueryID,
+			ActivityID:  ev.ActivityID,
 			Target:      ev.Target,
 			CloserNodes: ev.CloserNodes,
 		}
@@ -470,10 +470,10 @@ func (b *PublishBehaviour[K, N, M]) performNextInbound(ctx context.Context) (Beh
 		})
 
 		cmd = &publish.EventPoolGetCloserNodesFailure[K, N]{
-			NodeID:  ev.To,
-			QueryID: ev.QueryID,
-			Target:  ev.Target,
-			Error:   ev.Err,
+			NodeID:     ev.To,
+			ActivityID: ev.ActivityID,
+			Target:     ev.Target,
+			Error:      ev.Err,
 		}
 
 	case *EventSendMessageSuccess[K, N, M]:
@@ -482,30 +482,30 @@ func (b *PublishBehaviour[K, N, M]) performNextInbound(ctx context.Context) (Beh
 				NodeID: info,
 			})
 		}
-		waiter, ok := b.notifiers[ev.QueryID]
+		waiter, ok := b.notifiers[ev.ActivityID]
 		if ok {
 			waiter.TryNotifyProgressed(ctx, &EventQueryProgressed[K, N, M]{
-				NodeID:   ev.To,
-				QueryID:  ev.QueryID,
-				Response: ev.Response,
+				NodeID:     ev.To,
+				ActivityID: ev.ActivityID,
+				Response:   ev.Response,
 			})
 		}
 		if err := b.verifyResponse(ev.Request, ev.Response); err != nil {
 			cmd = &publish.EventPoolStoreRecordFailure[K, N, M]{
-				QueryID: ev.QueryID,
-				NodeID:  ev.To,
-				Request: ev.Request,
-				Error:   err,
+				ActivityID: ev.ActivityID,
+				NodeID:     ev.To,
+				Request:    ev.Request,
+				Error:      err,
 			}
 			break
 		}
 
 		// TODO: How do we know it's a StoreRecord response?
 		cmd = &publish.EventPoolStoreRecordSuccess[K, N, M]{
-			QueryID:  ev.QueryID,
-			NodeID:   ev.To,
-			Request:  ev.Request,
-			Response: ev.Response,
+			ActivityID: ev.ActivityID,
+			NodeID:     ev.To,
+			Request:    ev.Request,
+			Response:   ev.Response,
 		}
 
 	case *EventSendMessageFailure[K, N, M]:
@@ -516,15 +516,15 @@ func (b *PublishBehaviour[K, N, M]) performNextInbound(ctx context.Context) (Beh
 
 		// TODO: How do we know it's a StoreRecord response?
 		cmd = &publish.EventPoolStoreRecordFailure[K, N, M]{
-			NodeID:  ev.To,
-			QueryID: ev.QueryID,
-			Request: ev.Request,
-			Error:   ev.Err,
+			NodeID:     ev.To,
+			ActivityID: ev.ActivityID,
+			Request:    ev.Request,
+			Error:      ev.Err,
 		}
 
 	case *EventStopQuery:
 		cmd = &publish.EventPoolStopPublish{
-			QueryID: ev.QueryID,
+			ActivityID: ev.ActivityID,
 		}
 	}
 
@@ -551,17 +551,17 @@ func (b *PublishBehaviour[K, N, M]) advancePool(ctx context.Context, now time.Ti
 		b.nextDue = st.NextDue
 	case *publish.StatePoolFindCloser[K, N]:
 		return &EventOutboundGetCloserNodes[K, N]{
-			QueryID: st.QueryID,
-			To:      st.NodeID,
-			Target:  st.Target,
-			Notify:  b,
+			ActivityID: st.ActivityID,
+			To:         st.NodeID,
+			Target:     st.Target,
+			Notify:     b,
 		}, true
 	case *publish.StatePoolStoreRecord[K, N, M]:
 		return &EventOutboundSendMessage[K, N, M]{
-			QueryID: st.QueryID,
-			To:      st.NodeID,
-			Message: st.Message,
-			Notify:  b,
+			ActivityID: st.ActivityID,
+			To:         st.NodeID,
+			Message:    st.Message,
+			Notify:     b,
 		}, true
 	case *publish.StatePoolPublishFinished[K, N]:
 		// the state carries no due time and the pool has removed the publish, so the
@@ -569,21 +569,21 @@ func (b *PublishBehaviour[K, N, M]) advancePool(ctx context.Context, now time.Ti
 		b.pollAgain = true
 
 		// a finished publish that belongs to a region frees that region's slot
-		if regionID, ok := b.children[st.QueryID]; ok {
-			delete(b.children, st.QueryID)
-			b.advanceRegion(ctx, now, regionID, &publish.EventRegionKeyDone{ChildID: st.QueryID})
+		if regionID, ok := b.children[st.ActivityID]; ok {
+			delete(b.children, st.ActivityID)
+			b.advanceRegion(ctx, now, regionID, &publish.EventRegionKeyDone{ChildID: st.ActivityID})
 			return nil, false
 		}
 
-		waiter, ok := b.notifiers[st.QueryID]
+		waiter, ok := b.notifiers[st.ActivityID]
 		if ok {
 			waiter.NotifyFinished(ctx, &EventPublishFinished[K, N]{
-				QueryID:    st.QueryID,
+				ActivityID: st.ActivityID,
 				Contacted:  st.Contacted,
 				Errors:     st.Errors,
 				QueryStats: st.QueryStats,
 			})
-			delete(b.notifiers, st.QueryID)
+			delete(b.notifiers, st.ActivityID)
 		}
 	}
 
@@ -606,7 +606,7 @@ func (b *PublishBehaviour[K, N, M]) advanceRegions(ctx context.Context, now time
 // advanceRegion advances the region publish with the given id and acts on the state it reports. A
 // [publish.StateRegionStartKey] starts a static publish for the key in the shared pool; a
 // [publish.StateRegionFinished] drops the region.
-func (b *PublishBehaviour[K, N, M]) advanceRegion(ctx context.Context, now time.Time, regionID coordt.QueryID, rev publish.RegionEvent) (BehaviourEvent, bool) {
+func (b *PublishBehaviour[K, N, M]) advanceRegion(ctx context.Context, now time.Time, regionID coordt.ActivityID, rev publish.RegionEvent) (BehaviourEvent, bool) {
 	rp, ok := b.regions[regionID]
 	if !ok {
 		return nil, false
@@ -616,10 +616,10 @@ func (b *PublishBehaviour[K, N, M]) advanceRegion(ctx context.Context, now time.
 	case *publish.StateRegionStartKey[K, N]:
 		b.children[st.ChildID] = regionID
 		return b.advancePool(ctx, now, &publish.EventPoolStartStatic[K, N, M]{
-			QueryID: st.ChildID,
-			Target:  st.Target,
-			Message: b.recordSource(st.Target),
-			Nodes:   st.Nodes,
+			ActivityID: st.ChildID,
+			Target:     st.Target,
+			Message:    b.recordSource(st.Target),
+			Nodes:      st.Nodes,
 		})
 	case *publish.StateRegionFinished:
 		// TODO: record the region's last-provided time before dropping the region

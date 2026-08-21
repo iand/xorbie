@@ -19,8 +19,8 @@ import (
 	"github.com/iand/xorbie/query"
 )
 
-// SurveyQueryID is the id for the query operated by the survey process.
-const SurveyQueryID = coordt.QueryID("survey")
+// SurveyActivityID is the id for the activity operated by the survey process.
+const SurveyActivityID = coordt.ActivityID("survey")
 
 // A PrefixTargetFunc returns a key inside the region described by prefix, whose leading
 // bits equal prefix. Minting a key with a given prefix is network specific and this
@@ -423,7 +423,7 @@ func (s *Survey[K, N]) startSurvey(ctx context.Context, now time.Time, region bi
 	qryCfg.Timeout = s.cfg.RegionTimeout
 	qryCfg.NumResults = s.cfg.WalkInBound
 
-	qry, err := query.NewCoverageQuery[K, N, coordt.NoMessage[K, N]](s.self, SurveyQueryID, target, len(region), iter, seeds, qryCfg)
+	qry, err := query.NewCoverageQuery[K, N, coordt.NoMessage[K, N]](s.self, SurveyActivityID, target, len(region), iter, seeds, qryCfg)
 	if err != nil {
 		s.counterFailed.Add(ctx, 1)
 		return &StateSurveyFailure{Prefix: region, Error: fmt.Errorf("start coverage query: %w", err)}
@@ -447,10 +447,10 @@ func (s *Survey[K, N]) advanceQuery(ctx context.Context, now time.Time, qev quer
 	case *query.StateQueryFindCloser[K, N]:
 		s.counterFindSent.Add(ctx, 1)
 		return &StateSurveyFindCloser[K, N]{
-			QueryID: st.QueryID,
-			Target:  st.Target,
-			NodeID:  st.NodeID,
-			Stats:   st.Stats,
+			ActivityID: st.ActivityID,
+			Target:     st.Target,
+			NodeID:     st.NodeID,
+			Stats:      st.Stats,
 		}
 	case *query.StateQueryFinished[K, N]:
 		span.SetAttributes(attribute.String("out_state", "StateSurveyFinished"))
@@ -549,10 +549,10 @@ type StateSurveyIdle struct {
 
 // StateSurveyFindCloser indicates that the survey's coverage query wants to send a find closer nodes message to a node.
 type StateSurveyFindCloser[K kad.Key[K], N kad.NodeID[K]] struct {
-	QueryID coordt.QueryID
-	Target  K // the key the query wants to find closer nodes for
-	NodeID  N // the node to send the message to
-	Stats   query.QueryStats
+	ActivityID coordt.ActivityID
+	Target     K // the key the query wants to find closer nodes for
+	NodeID     N // the node to send the message to
+	Stats      query.QueryStats
 }
 
 // StateSurveyWaiting indicates that the survey's coverage query is waiting for a response.

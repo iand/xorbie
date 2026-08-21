@@ -68,8 +68,8 @@ type Coordinator[K kad.Key[K], N kad.NodeID[K], M coordt.Message[K, N]] struct {
 	// routingNotifier receives routing notifications
 	routingNotifier RoutingNotifier
 
-	// lastQueryID holds the last numeric query id generated
-	lastQueryID atomic.Uint64
+	// lastActivityID holds the last numeric activity id generated
+	lastActivityID atomic.Uint64
 }
 
 type RoutingNotifier interface {
@@ -418,9 +418,9 @@ func (c *Coordinator[K, N, M]) dispatchEvent(ctx context.Context, ev BehaviourEv
 		c.routingNotifierMu.RUnlock()
 		rn.Notify(ctx, ev)
 		c.publishBehaviour.Notify(ctx, &EventStartRegionPublish[K, N]{
-			QueryID: c.newOperationID(),
-			Prefix:  ev.Prefix,
-			Nodes:   ev.Nodes,
+			ActivityID: c.newActivityID(),
+			Prefix:     ev.Prefix,
+			Nodes:      ev.Nodes,
 		})
 	case RoutingNotification:
 		c.routingNotifierMu.RLock()
@@ -492,10 +492,10 @@ func (c *Coordinator[K, N, M]) QueryClosest(ctx context.Context, target K, fn co
 	}
 
 	waiter := NewQueryWaiter[K, N, M](numResults)
-	queryID := c.newOperationID()
+	activityID := c.newActivityID()
 
 	cmd := &EventStartFindCloserQuery[K, N, M]{
-		QueryID:           queryID,
+		ActivityID:        activityID,
 		Target:            target,
 		KnownClosestNodes: seedIDs,
 		Notify:            waiter,
@@ -505,7 +505,7 @@ func (c *Coordinator[K, N, M]) QueryClosest(ctx context.Context, target K, fn co
 	// queue the start of the query
 	c.queryBehaviour.Notify(ctx, cmd)
 
-	return c.waitForQuery(ctx, queryID, waiter, fn)
+	return c.waitForQuery(ctx, activityID, waiter, fn)
 }
 
 // QueryMessage starts a query that iterates over the closest nodes to the target key in the supplied message.
@@ -546,10 +546,10 @@ func (c *Coordinator[K, N, M]) QueryMessage(ctx context.Context, msg M, fn coord
 	}
 
 	waiter := NewQueryWaiter[K, N, M](numResults)
-	queryID := c.newOperationID()
+	activityID := c.newActivityID()
 
 	cmd := &EventStartMessageQuery[K, N, M]{
-		QueryID:           queryID,
+		ActivityID:        activityID,
 		Target:            msg.Target(),
 		Message:           msg,
 		KnownClosestNodes: seedIDs,
@@ -560,7 +560,7 @@ func (c *Coordinator[K, N, M]) QueryMessage(ctx context.Context, msg M, fn coord
 	// queue the start of the query
 	c.queryBehaviour.Notify(ctx, cmd)
 
-	closest, stats, err := c.waitForQuery(ctx, queryID, waiter, fn)
+	closest, stats, err := c.waitForQuery(ctx, activityID, waiter, fn)
 	return closest, stats, err
 }
 
@@ -591,7 +591,7 @@ func (c *Coordinator[K, N, M]) PublishFollowUp(ctx context.Context, msg M) (coor
 	start := time.Now()
 
 	c.publishBehaviour.Notify(ctx, &EventStartFollowUpPublish[K, N, M]{
-		QueryID:           c.newOperationID(),
+		ActivityID:        c.newActivityID(),
 		Target:            msg.Target(),
 		Message:           msg,
 		KnownClosestNodes: seeds,
@@ -621,11 +621,11 @@ func (c *Coordinator[K, N, M]) PublishStatic(ctx context.Context, msg M, nodes [
 	start := time.Now()
 
 	c.publishBehaviour.Notify(ctx, &EventStartStaticPublish[K, N, M]{
-		QueryID: c.newOperationID(),
-		Target:  msg.Target(),
-		Message: msg,
-		Nodes:   nodes,
-		Notify:  waiter,
+		ActivityID: c.newActivityID(),
+		Target:     msg.Target(),
+		Message:    msg,
+		Nodes:      nodes,
+		Notify:     waiter,
 	})
 
 	return c.awaitPublish(ctx, waiter, start)
@@ -666,7 +666,7 @@ func (c *Coordinator[K, N, M]) PublishOptimistic(ctx context.Context, msg M) (co
 	start := time.Now()
 
 	c.publishBehaviour.Notify(ctx, &EventStartOptimisticPublish[K, N, M]{
-		QueryID:           c.newOperationID(),
+		ActivityID:        c.newActivityID(),
 		Target:            msg.Target(),
 		Message:           msg,
 		KnownClosestNodes: seeds,
@@ -709,7 +709,7 @@ func (c *Coordinator[K, N, M]) awaitPublish(ctx context.Context, waiter *Publish
 	return stats, nil
 }
 
-func (c *Coordinator[K, N, M]) waitForQuery(ctx context.Context, queryID coordt.QueryID, waiter *QueryWaiter[K, N, M], fn coordt.QueryFunc[K, N, M]) ([]N, coordt.QueryStats, error) {
+func (c *Coordinator[K, N, M]) waitForQuery(ctx context.Context, activityID coordt.ActivityID, waiter *QueryWaiter[K, N, M], fn coordt.QueryFunc[K, N, M]) ([]N, coordt.QueryStats, error) {
 	var lastStats coordt.QueryStats
 
 	// progressed is set to nil once the notifier closes the progress channel, which it
@@ -729,7 +729,7 @@ func (c *Coordinator[K, N, M]) waitForQuery(ctx context.Context, queryID coordt.
 				continue
 			}
 			ctx, ev := wev.Ctx, wev.Event
-			c.cfg.Logger.Debug("query made progress", "query_id", queryID, logAttrNodeID(ev.NodeID), slog.Duration("elapsed", time.Since(ev.Stats.Start)), slog.Int("requests", ev.Stats.Requests), slog.Int("failures", ev.Stats.Failure))
+			c.cfg.Logger.Debug("query made progress", "query_id", activityID, logAttrNodeID(ev.NodeID), slog.Duration("elapsed", time.Since(ev.Stats.Start)), slog.Int("requests", ev.Stats.Requests), slog.Int("failures", ev.Stats.Failure))
 			lastStats = coordt.QueryStats{
 				Start:    ev.Stats.Start,
 				Requests: ev.Stats.Requests,
@@ -739,20 +739,20 @@ func (c *Coordinator[K, N, M]) waitForQuery(ctx context.Context, queryID coordt.
 			err := fn(ctx, ev.NodeID, ev.Response, lastStats)
 			if errors.Is(err, coordt.ErrSkipRemaining) {
 				// done
-				c.cfg.Logger.Debug("query done", "query_id", queryID)
-				c.queryBehaviour.Notify(ctx, &EventStopQuery{QueryID: queryID})
+				c.cfg.Logger.Debug("query done", "query_id", activityID)
+				c.queryBehaviour.Notify(ctx, &EventStopQuery{ActivityID: activityID})
 				return nil, lastStats, nil
 			}
 			if err != nil {
 				// user defined error that terminates the query
-				c.queryBehaviour.Notify(ctx, &EventStopQuery{QueryID: queryID})
+				c.queryBehaviour.Notify(ctx, &EventStopQuery{ActivityID: activityID})
 				return nil, lastStats, err
 			}
 		case wev, more := <-waiter.Finished():
 			// drain the progress notification channel
 			for pev := range waiter.Progressed() {
 				ctx, ev := pev.Ctx, pev.Event
-				c.cfg.Logger.Debug("query made progress", "query_id", queryID, logAttrNodeID(ev.NodeID), slog.Duration("elapsed", time.Since(ev.Stats.Start)), slog.Int("requests", ev.Stats.Requests), slog.Int("failures", ev.Stats.Failure))
+				c.cfg.Logger.Debug("query made progress", "query_id", activityID, logAttrNodeID(ev.NodeID), slog.Duration("elapsed", time.Since(ev.Stats.Start)), slog.Int("requests", ev.Stats.Requests), slog.Int("failures", ev.Stats.Failure))
 				lastStats = coordt.QueryStats{
 					Start:    ev.Stats.Start,
 					Requests: ev.Stats.Requests,
@@ -763,7 +763,7 @@ func (c *Coordinator[K, N, M]) waitForQuery(ctx context.Context, queryID coordt.
 				if errors.Is(err, coordt.ErrSkipRemaining) {
 					// the caller has seen all it wants to, so stop offering nodes and
 					// report the outcome of the query as usual
-					c.cfg.Logger.Debug("query done", "query_id", queryID)
+					c.cfg.Logger.Debug("query done", "query_id", activityID)
 					break
 				}
 				if err != nil {
@@ -776,13 +776,13 @@ func (c *Coordinator[K, N, M]) waitForQuery(ctx context.Context, queryID coordt.
 			}
 
 			if wev.Event.Err != nil {
-				c.cfg.Logger.Debug("query ended early", "query_id", queryID, slog.String("reason", wev.Event.Err.Error()), slog.Int("requests", wev.Event.Stats.Requests), slog.Int("failures", wev.Event.Stats.Failure))
+				c.cfg.Logger.Debug("query ended early", "query_id", activityID, slog.String("reason", wev.Event.Err.Error()), slog.Int("requests", wev.Event.Stats.Requests), slog.Int("failures", wev.Event.Stats.Failure))
 				return nil, lastStats, wev.Event.Err
 			}
 
 			// query is done
 			lastStats.Exhausted = true
-			c.cfg.Logger.Debug("query ran to exhaustion", "query_id", queryID, slog.Duration("elapsed", wev.Event.Stats.End.Sub(wev.Event.Stats.Start)), slog.Int("requests", wev.Event.Stats.Requests), slog.Int("failures", wev.Event.Stats.Failure))
+			c.cfg.Logger.Debug("query ran to exhaustion", "query_id", activityID, slog.Duration("elapsed", wev.Event.Stats.End.Sub(wev.Event.Stats.Start)), slog.Int("requests", wev.Event.Stats.Requests), slog.Int("failures", wev.Event.Stats.Failure))
 			return wev.Event.ClosestNodes, lastStats, nil
 
 		}
@@ -866,9 +866,9 @@ func (c *Coordinator[K, N, M]) NotifyNonConnectivity(ctx context.Context, id N) 
 	})
 }
 
-func (c *Coordinator[K, N, M]) newOperationID() coordt.QueryID {
-	next := c.lastQueryID.Add(1)
-	return coordt.QueryID(fmt.Sprintf("%016x", next))
+func (c *Coordinator[K, N, M]) newActivityID() coordt.ActivityID {
+	next := c.lastActivityID.Add(1)
+	return coordt.ActivityID(fmt.Sprintf("%016x", next))
 }
 
 // A BufferedRoutingNotifier is a [RoutingNotifier] that buffers [RoutingNotification] events and provides methods

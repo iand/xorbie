@@ -67,7 +67,7 @@ func tinyCoverageQuery(t *testing.T, target tiny.Key, prefixLen int, seeds []tin
 	t.Helper()
 	iter := NewClosestNodesIter[tiny.Key, tiny.Node](target)
 	self := tiny.NewNode(0)
-	qry, err := NewCoverageQuery[tiny.Key, tiny.Node, coordt.NoMessage[tiny.Key, tiny.Node]](self, coordt.QueryID("cover"), target, prefixLen, iter, seeds, cfg)
+	qry, err := NewCoverageQuery[tiny.Key, tiny.Node, coordt.NoMessage[tiny.Key, tiny.Node]](self, coordt.ActivityID("cover"), target, prefixLen, iter, seeds, cfg)
 	require.NoError(t, err)
 	return qry
 }
@@ -252,7 +252,7 @@ func TestCoverageLargerKey(t *testing.T) {
 	cfg := DefaultQueryConfig()
 	cfg.NumResults = 4
 
-	qry, err := NewCoverageQuery[kadtest.Key32, node, coordt.NoMessage[kadtest.Key32, node]](self, coordt.QueryID("cover"), target, prefixLen, iter, seeds, cfg)
+	qry, err := NewCoverageQuery[kadtest.Key32, node, coordt.NoMessage[kadtest.Key32, node]](self, coordt.ActivityID("cover"), target, prefixLen, iter, seeds, cfg)
 	require.NoError(t, err)
 
 	st := runCoverage(t, qry, graph, nil)

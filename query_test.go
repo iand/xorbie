@@ -108,7 +108,7 @@ func (ts *QueryBehaviourBaseTestSuite) TestNotifiesNoProgress() {
 
 	waiter := NewQueryWaiter[tiny.Key, tiny.Node, tiny.Message](5)
 	cmd := &EventStartFindCloserQuery[tiny.Key, tiny.Node, tiny.Message]{
-		QueryID:           "test",
+		ActivityID:        "test",
 		Target:            target,
 		KnownClosestNodes: seeds,
 		Notify:            waiter,
@@ -128,9 +128,9 @@ func (ts *QueryBehaviourBaseTestSuite) TestNotifiesNoProgress() {
 
 	// notify failure
 	b.Notify(ctx, &EventGetCloserNodesFailure[tiny.Key, tiny.Node]{
-		QueryID: "test",
-		To:      egc.To,
-		Target:  target,
+		ActivityID: "test",
+		To:         egc.To,
+		Target:     target,
 	})
 
 	// query will process the response and notify that node 1 is non connective
@@ -155,7 +155,7 @@ func (ts *QueryBehaviourBaseTestSuite) TestNotifiesQueryProgressed() {
 
 	waiter := NewQueryWaiter[tiny.Key, tiny.Node, tiny.Message](5)
 	cmd := &EventStartFindCloserQuery[tiny.Key, tiny.Node, tiny.Message]{
-		QueryID:           "test",
+		ActivityID:        "test",
 		Target:            target,
 		KnownClosestNodes: seeds,
 		Notify:            waiter,
@@ -175,7 +175,7 @@ func (ts *QueryBehaviourBaseTestSuite) TestNotifiesQueryProgressed() {
 
 	// notify success
 	b.Notify(ctx, &EventGetCloserNodesSuccess[tiny.Key, tiny.Node]{
-		QueryID:     "test",
+		ActivityID:  "test",
 		To:          egc.To,
 		Target:      target,
 		CloserNodes: ts.nodes[1].RoutingTable.NearestNodes(target, 5),
@@ -203,7 +203,7 @@ func (ts *QueryBehaviourBaseTestSuite) TestNotifiesQueryFinished() {
 
 	waiter := NewQueryWaiter[tiny.Key, tiny.Node, tiny.Message](5)
 	cmd := &EventStartFindCloserQuery[tiny.Key, tiny.Node, tiny.Message]{
-		QueryID:           "test",
+		ActivityID:        "test",
 		Target:            target,
 		KnownClosestNodes: seeds,
 		Notify:            waiter,
@@ -223,7 +223,7 @@ func (ts *QueryBehaviourBaseTestSuite) TestNotifiesQueryFinished() {
 
 	// notify success
 	b.Notify(ctx, &EventGetCloserNodesSuccess[tiny.Key, tiny.Node]{
-		QueryID:     "test",
+		ActivityID:  "test",
 		To:          egc.To,
 		Target:      target,
 		CloserNodes: ts.nodes[1].RoutingTable.NearestNodes(target, 5),
@@ -246,9 +246,9 @@ func (ts *QueryBehaviourBaseTestSuite) TestNotifiesQueryFinished() {
 
 	// notify success for last seen EventOutboundGetCloserNodes but supply no further nodes
 	b.Notify(ctx, &EventGetCloserNodesSuccess[tiny.Key, tiny.Node]{
-		QueryID: "test",
-		To:      egc.To,
-		Target:  target,
+		ActivityID: "test",
+		To:         egc.To,
+		Target:     target,
 	})
 
 	// skip events until behaviour runs out of work
@@ -295,7 +295,7 @@ func TestQueryBehaviourRequestConcurrency(t *testing.T) {
 	}
 
 	b.Notify(ctx, &EventStartFindCloserQuery[tiny.Key, tiny.Node, tiny.Message]{
-		QueryID:           "test",
+		ActivityID:        "test",
 		Target:            nodes[5].NodeID.Key(),
 		KnownClosestNodes: seeds,
 		NumResults:        10,
@@ -340,7 +340,7 @@ func TestQueryBehaviourNotifiesQueryTimeout(t *testing.T) {
 
 		waiter := NewQueryWaiter[tiny.Key, tiny.Node, tiny.Message](5)
 		b.Notify(ctx, &EventStartFindCloserQuery[tiny.Key, tiny.Node, tiny.Message]{
-			QueryID:           "test",
+			ActivityID:        "test",
 			Target:            nodes[2].NodeID.Key(),
 			KnownClosestNodes: []tiny.Node{nodes[1].NodeID},
 			Notify:            waiter,
@@ -360,7 +360,7 @@ func TestQueryBehaviourNotifiesQueryTimeout(t *testing.T) {
 
 		wev := kadtest.ReadItem(t, ctx, waiter.Finished())
 		require.ErrorIs(t, wev.Event.Err, coordt.ErrQueryTimeout)
-		require.Equal(t, coordt.QueryID("test"), wev.Event.QueryID)
+		require.Equal(t, coordt.ActivityID("test"), wev.Event.ActivityID)
 
 		// the notifier is not retained for a query the pool has removed
 		require.Empty(t, b.notifiers)
@@ -375,7 +375,7 @@ func TestQueryTimeoutUnblocksWaitForQuery(t *testing.T) {
 		// the query outlives the deadline kadtest.CtxBubble would give, since the sleep
 		// that expires it moves the same fake clock
 		ctx := t.Context()
-		queryID := coordt.QueryID("test")
+		activityID := coordt.ActivityID("test")
 
 		_, nodes, err := linearTopology(3)
 		require.NoError(t, err)
@@ -400,13 +400,13 @@ func TestQueryTimeoutUnblocksWaitForQuery(t *testing.T) {
 		var waitErr error
 		go func() {
 			defer close(waiterDone)
-			_, _, waitErr = c.waitForQuery(ctx, queryID, waiter, func(ctx context.Context, id tiny.Node, resp tiny.Message, stats coordt.QueryStats) error {
+			_, _, waitErr = c.waitForQuery(ctx, activityID, waiter, func(ctx context.Context, id tiny.Node, resp tiny.Message, stats coordt.QueryStats) error {
 				return nil
 			})
 		}()
 
 		c.queryBehaviour.Notify(ctx, &EventStartFindCloserQuery[tiny.Key, tiny.Node, tiny.Message]{
-			QueryID:           queryID,
+			ActivityID:        activityID,
 			Target:            nodes[2].NodeID.Key(),
 			KnownClosestNodes: []tiny.Node{nodes[1].NodeID},
 			Notify:            waiter,
@@ -433,7 +433,7 @@ func TestQueryTimeoutUnblocksWaitForQuery(t *testing.T) {
 func TestQueryDeadlockRegression(t *testing.T) {
 	ctx := kadtest.CtxShort(t)
 	msg := tiny.Message{}
-	queryID := coordt.QueryID("test")
+	activityID := coordt.ActivityID("test")
 
 	_, nodes, err := linearTopology(3)
 	require.NoError(t, err)
@@ -449,7 +449,7 @@ func TestQueryDeadlockRegression(t *testing.T) {
 	// define a function that produces success messages
 	successMsg := func(to tiny.Node, closer ...tiny.Node) *EventSendMessageSuccess[tiny.Key, tiny.Node, tiny.Message] {
 		return &EventSendMessageSuccess[tiny.Key, tiny.Node, tiny.Message]{
-			QueryID:     queryID,
+			ActivityID:  activityID,
 			Request:     msg,
 			To:          to,
 			Response:    tiny.Message{},
@@ -467,7 +467,7 @@ func TestQueryDeadlockRegression(t *testing.T) {
 	go func() {
 		defer close(waiterDone)
 		defer close(waiterMsg)
-		_, _, waitErr = c.waitForQuery(ctx, queryID, waiter, func(ctx context.Context, id tiny.Node, resp tiny.Message, stats coordt.QueryStats) error {
+		_, _, waitErr = c.waitForQuery(ctx, activityID, waiter, func(ctx context.Context, id tiny.Node, resp tiny.Message, stats coordt.QueryStats) error {
 			waiterMsg <- struct{}{}
 			return coordt.ErrSkipRemaining
 		})
@@ -475,7 +475,7 @@ func TestQueryDeadlockRegression(t *testing.T) {
 
 	// start the message query
 	c.queryBehaviour.Notify(ctx, &EventStartMessageQuery[tiny.Key, tiny.Node, tiny.Message]{
-		QueryID:           queryID,
+		ActivityID:        activityID,
 		Target:            msg.Target(),
 		Message:           msg,
 		KnownClosestNodes: []tiny.Node{nodes[1].NodeID},
@@ -565,19 +565,19 @@ func TestQueryBehaviourReportsDroppedQueryStart(t *testing.T) {
 	require.NoError(t, err)
 
 	// take the queue's only place
-	b.Notify(ctx, &EventStopQuery{QueryID: "filler"})
+	b.Notify(ctx, &EventStopQuery{ActivityID: "filler"})
 
 	waiter := NewQueryWaiter[tiny.Key, tiny.Node, tiny.Message](1)
 	b.Notify(ctx, &EventStartFindCloserQuery[tiny.Key, tiny.Node, tiny.Message]{
-		QueryID: "dropped",
-		Target:  nodes[1].NodeID.Key(),
-		Notify:  waiter,
+		ActivityID: "dropped",
+		Target:     nodes[1].NodeID.Key(),
+		Notify:     waiter,
 	})
 
 	select {
 	case wev := <-waiter.Finished():
 		require.ErrorIs(t, wev.Event.Err, ErrEventDropped)
-		require.Equal(t, coordt.QueryID("dropped"), wev.Event.QueryID)
+		require.Equal(t, coordt.ActivityID("dropped"), wev.Event.ActivityID)
 	default:
 		t.Fatal("caller was not told the query had been dropped")
 	}
@@ -600,7 +600,7 @@ func TestQueryBehaviourBoundsItsInboundQueue(t *testing.T) {
 	require.NoError(t, err)
 
 	for i := range 20 {
-		b.Notify(ctx, &EventStopQuery{QueryID: coordt.QueryID(fmt.Sprintf("q%d", i))})
+		b.Notify(ctx, &EventStopQuery{ActivityID: coordt.ActivityID(fmt.Sprintf("q%d", i))})
 	}
 
 	require.Equal(t, int64(cfg.QueueCapacity), b.inbound.depth.Load())
@@ -608,11 +608,11 @@ func TestQueryBehaviourBoundsItsInboundQueue(t *testing.T) {
 
 // runFindCloserQuery drives a find closer nodes query for target to completion, answering each
 // request the behaviour makes with the nodes the contacted peer holds nearest to the target.
-func runFindCloserQuery(t *testing.T, ctx context.Context, b *QueryBehaviour[tiny.Key, tiny.Node, tiny.Message], nodes []*testPeer, queryID coordt.QueryID, target tiny.Key) {
+func runFindCloserQuery(t *testing.T, ctx context.Context, b *QueryBehaviour[tiny.Key, tiny.Node, tiny.Message], nodes []*testPeer, activityID coordt.ActivityID, target tiny.Key) {
 	t.Helper()
 
 	b.Notify(ctx, &EventStartFindCloserQuery[tiny.Key, tiny.Node, tiny.Message]{
-		QueryID:           queryID,
+		ActivityID:        activityID,
 		Target:            target,
 		KnownClosestNodes: nodes[0].RoutingTable.NearestNodes(target, 5),
 		NumResults:        10,
@@ -640,7 +640,7 @@ func runFindCloserQuery(t *testing.T, ctx context.Context, b *QueryBehaviour[tin
 		}
 
 		b.Notify(ctx, &EventGetCloserNodesSuccess[tiny.Key, tiny.Node]{
-			QueryID:     queryID,
+			ActivityID:  activityID,
 			To:          egc.To,
 			Target:      target,
 			CloserNodes: closer,
@@ -676,7 +676,7 @@ func TestQueryBehaviourTracksQueryResults(t *testing.T) {
 	// Several queries are run so that each rank the estimator files a node under holds
 	// observations of more than one distance, which is what lets it measure their spread.
 	for i, target := range nodes[1:] {
-		runFindCloserQuery(t, ctx, b, nodes, coordt.QueryID(fmt.Sprintf("query-%d", i)), target.NodeID.Key())
+		runFindCloserQuery(t, ctx, b, nodes, coordt.ActivityID(fmt.Sprintf("query-%d", i)), target.NodeID.Key())
 	}
 
 	est, err := nse.Estimate(time.Now())

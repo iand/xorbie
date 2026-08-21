@@ -32,7 +32,7 @@ import (
 // emits [StateRegionFinished].
 type RegionPublish[K kad.Key[K], N kad.NodeID[K]] struct {
 	// regionID is the id of this region publish, used to derive the child publish ids
-	regionID coordt.QueryID
+	regionID coordt.ActivityID
 
 	// keys is the snapshot of region keys to publish
 	keys []K
@@ -50,7 +50,7 @@ type RegionPublish[K kad.Key[K], N kad.NodeID[K]] struct {
 	cursor int
 
 	// inflight maps the id of each started per-key publish to the index of its key
-	inflight map[coordt.QueryID]int
+	inflight map[coordt.ActivityID]int
 
 	// tracer traces the execution of this state machine
 	tracer trace.Tracer
@@ -59,14 +59,14 @@ type RegionPublish[K kad.Key[K], N kad.NodeID[K]] struct {
 // NewRegion creates a state machine that publishes each key in keys with its r closest nodes
 // drawn from nodes, running at most maxInFlight per-key publishes at once and reporting under the
 // region id qid. Both r and maxInFlight must be at least one.
-func NewRegion[K kad.Key[K], N kad.NodeID[K]](qid coordt.QueryID, keys []K, nodes []N, r, maxInFlight int, tracer trace.Tracer) *RegionPublish[K, N] {
+func NewRegion[K kad.Key[K], N kad.NodeID[K]](qid coordt.ActivityID, keys []K, nodes []N, r, maxInFlight int, tracer trace.Tracer) *RegionPublish[K, N] {
 	return &RegionPublish[K, N]{
 		regionID:    qid,
 		keys:        keys,
 		nodes:       nodes,
 		r:           r,
 		maxInFlight: maxInFlight,
-		inflight:    map[coordt.QueryID]int{},
+		inflight:    map[coordt.ActivityID]int{},
 		tracer:      tracer,
 	}
 }
@@ -93,7 +93,7 @@ func (rp *RegionPublish[K, N]) Advance(ctx context.Context, now time.Time, ev Re
 			i := rp.cursor
 			rp.cursor++
 			k := rp.keys[i]
-			child := coordt.QueryID(fmt.Sprintf("%s-%d", rp.regionID, i))
+			child := coordt.ActivityID(fmt.Sprintf("%s-%d", rp.regionID, i))
 			rp.inflight[child] = i
 			return &StateRegionStartKey[K, N]{
 				ChildID: child,
@@ -137,9 +137,9 @@ type RegionState interface {
 // key Target, storing it with Nodes. ChildID is the id the caller reports the outcome under with
 // [EventRegionKeyDone].
 type StateRegionStartKey[K kad.Key[K], N kad.NodeID[K]] struct {
-	ChildID coordt.QueryID // the id of the per-key publish to start
-	Target  K              // the key to publish
-	Nodes   []N            // the nodes the key is stored with, its closest in the region
+	ChildID coordt.ActivityID // the id of the per-key publish to start
+	Target  K                 // the key to publish
+	Nodes   []N               // the nodes the key is stored with, its closest in the region
 }
 
 // StateRegionWaiting indicates that a [RegionPublish] can't start a key, either because the cap
@@ -169,7 +169,7 @@ type EventRegionPoll struct{}
 // EventRegionKeyDone notifies a [RegionPublish] that the per-key publish with the id ChildID has
 // finished, freeing a slot.
 type EventRegionKeyDone struct {
-	ChildID coordt.QueryID // the id of the per-key publish that finished
+	ChildID coordt.ActivityID // the id of the per-key publish that finished
 }
 
 func (*EventRegionPoll) regionEvent()    {}

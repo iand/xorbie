@@ -120,8 +120,8 @@ func DefaultOptimisticConfig() *OptimisticConfig {
 // This is the algorithm described in Trautwein et al. 2023, "IPFS in the Fast Lane:
 // Accelerating Record Storage with Optimistic Provide".
 type Optimistic[K kad.Key[K], N kad.NodeID[K], M coordt.Message[K, N]] struct {
-	// queryID is the unique id of this publish operation
-	queryID coordt.QueryID
+	// activityID is the unique id of this publish operation
+	activityID coordt.ActivityID
 
 	// cfg is the configuration supplied to the Optimistic
 	cfg *OptimisticConfig
@@ -204,7 +204,7 @@ type foundNode[N any] struct {
 // networkSize is the estimated number of nodes in the network, from which both distance
 // thresholds are derived, and must be greater than zero. A nil cfg uses
 // [DefaultOptimisticConfig], and a non-nil one is validated.
-func NewOptimistic[K kad.Key[K], N kad.NodeID[K], M coordt.Message[K, N]](qid coordt.QueryID, pool *query.Pool[K, N, M], msg M, seeds []N, networkSize int, cfg *OptimisticConfig, tracer trace.Tracer) (*Optimistic[K, N, M], error) {
+func NewOptimistic[K kad.Key[K], N kad.NodeID[K], M coordt.Message[K, N]](qid coordt.ActivityID, pool *query.Pool[K, N, M], msg M, seeds []N, networkSize int, cfg *OptimisticConfig, tracer trace.Tracer) (*Optimistic[K, N, M], error) {
 	if cfg == nil {
 		cfg = DefaultOptimisticConfig()
 	} else if err := cfg.Validate(); err != nil {
@@ -224,7 +224,7 @@ func NewOptimistic[K kad.Key[K], N kad.NodeID[K], M coordt.Message[K, N]](qid co
 	}
 
 	return &Optimistic[K, N, M]{
-		queryID:             qid,
+		activityID:          qid,
 		cfg:                 cfg,
 		queryPool:           pool,
 		tracer:              tracer,
@@ -268,7 +268,7 @@ func (o *Optimistic[K, N, M]) Advance(ctx context.Context, now time.Time, ev Pub
 	// this before the pool is advanced is what keeps a request that has become pointless from
 	// being sent.
 	if o.walking && !o.stopped && o.setThresholdMet() {
-		pev = &query.EventPoolStopQuery{QueryID: o.queryID}
+		pev = &query.EventPoolStopQuery{ActivityID: o.activityID}
 		o.endWalk()
 	}
 
@@ -294,7 +294,7 @@ func (o *Optimistic[K, N, M]) Advance(ctx context.Context, now time.Time, ev Pub
 		}
 
 		return &StatePublishFinished[K, N]{
-			QueryID:    o.queryID,
+			ActivityID: o.activityID,
 			Contacted:  o.contacted,
 			Errors:     o.failed,
 			QueryStats: o.queryStats,
@@ -306,21 +306,21 @@ func (o *Optimistic[K, N, M]) Advance(ctx context.Context, now time.Time, ev Pub
 		o.waiting[k] = n
 		o.contacted = append(o.contacted, n)
 		return &StatePublishStoreRecord[K, N, M]{
-			QueryID: o.queryID,
-			NodeID:  n,
-			Message: o.msg,
+			ActivityID: o.activityID,
+			NodeID:     n,
+			Message:    o.msg,
 		}
 	}
 
 	if len(o.waiting) > 0 || o.walking {
 		// a store record request carries no deadline, so the only time at which this state
 		// machine could make progress on its own is when a walk request times out
-		return &StatePublishWaiting{QueryID: o.queryID, NextDue: o.nextDue}
+		return &StatePublishWaiting{ActivityID: o.activityID, NextDue: o.nextDue}
 	}
 
 	if o.started {
 		return &StatePublishFinished[K, N]{
-			QueryID:    o.queryID,
+			ActivityID: o.activityID,
 			Contacted:  o.contacted,
 			Errors:     o.failed,
 			QueryStats: o.queryStats,
@@ -348,9 +348,9 @@ func (o *Optimistic[K, N, M]) handleEvent(ctx context.Context, ev PublishEvent) 
 		o.discover(o.seeds)
 
 		return &query.EventPoolAddFindCloserQuery[K, N]{
-			QueryID: o.queryID,
-			Target:  ev.Target,
-			Seed:    o.seeds,
+			ActivityID: o.activityID,
+			Target:     ev.Target,
+			Seed:       o.seeds,
 		}
 	case *EventPublishStop:
 		o.stopped = true
@@ -358,20 +358,20 @@ func (o *Optimistic[K, N, M]) handleEvent(ctx context.Context, ev PublishEvent) 
 			return nil
 		}
 
-		return &query.EventPoolStopQuery{QueryID: o.queryID}
+		return &query.EventPoolStopQuery{ActivityID: o.activityID}
 	case *EventPublishNodeResponse[K, N]:
 		o.discover(ev.CloserNodes)
 
 		return &query.EventPoolNodeResponse[K, N]{
-			QueryID:     o.queryID,
+			ActivityID:  o.activityID,
 			NodeID:      ev.NodeID,
 			CloserNodes: ev.CloserNodes,
 		}
 	case *EventPublishNodeFailure[K, N]:
 		return &query.EventPoolNodeFailure[K, N]{
-			QueryID: o.queryID,
-			NodeID:  ev.NodeID,
-			Error:   ev.Error,
+			ActivityID: o.activityID,
+			NodeID:     ev.NodeID,
+			Error:      ev.Error,
 		}
 	case *EventPublishStoreRecordSuccess[K, N, M]:
 		delete(o.waiting, ev.NodeID.String())
@@ -405,9 +405,9 @@ func (o *Optimistic[K, N, M]) advancePool(ctx context.Context, now time.Time, ev
 	switch st := state.(type) {
 	case *query.StatePoolFindCloser[K, N]:
 		return &StatePublishFindCloser[K, N]{
-			QueryID: st.QueryID,
-			NodeID:  st.NodeID,
-			Target:  st.Target,
+			ActivityID: st.ActivityID,
+			NodeID:     st.NodeID,
+			Target:     st.Target,
 		}, true
 	case *query.StatePoolWaitingAtCapacity:
 		// the walk cannot be advanced, but a store may still be outstanding, so the time it

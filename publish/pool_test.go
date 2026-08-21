@@ -82,20 +82,20 @@ func TestPoolFollowUpLifecycle(t *testing.T) {
 	b := tiny.NewNode(0b00000011) // 3
 	c := tiny.NewNode(0b00000010) // 2
 
-	queryID := coordt.QueryID("test")
+	activityID := coordt.ActivityID("test")
 
 	state := p.Advance(ctx, epoch, &EventPoolStartFollowUp[tiny.Key, tiny.Node, tiny.Message]{
-		QueryID: queryID,
-		Target:  target,
-		Message: msg,
-		Seed:    []tiny.Node{a},
+		ActivityID: activityID,
+		Target:     target,
+		Message:    msg,
+		Seed:       []tiny.Node{a},
 	})
 
 	// the query should attempt to contact the node it was given
 	st, ok := state.(*StatePoolFindCloser[tiny.Key, tiny.Node])
 	require.True(t, ok)
 
-	require.Equal(t, queryID, st.QueryID)         // the query should be the one just added
+	require.Equal(t, activityID, st.ActivityID)   // the query should be the one just added
 	require.Equal(t, a, st.NodeID)                // the query should attempt to contact the node it was given
 	require.True(t, key.Equal(target, st.Target)) // with the correct target
 
@@ -106,7 +106,7 @@ func TestPoolFollowUpLifecycle(t *testing.T) {
 	// notify pool that the node was contacted successfully
 	// with a single closer node.
 	state = p.Advance(ctx, epoch, &EventPoolGetCloserNodesSuccess[tiny.Key, tiny.Node]{
-		QueryID:     queryID,
+		ActivityID:  activityID,
 		Target:      target,
 		NodeID:      a,
 		CloserNodes: []tiny.Node{a, b},
@@ -116,14 +116,14 @@ func TestPoolFollowUpLifecycle(t *testing.T) {
 	st, ok = state.(*StatePoolFindCloser[tiny.Key, tiny.Node])
 	require.True(t, ok, "state is %T", state)
 
-	require.Equal(t, queryID, st.QueryID)         // the query should be the same
+	require.Equal(t, activityID, st.ActivityID)   // the query should be the same
 	require.Equal(t, b, st.NodeID)                // the query should attempt to contact the newly discovered node
 	require.True(t, key.Equal(target, st.Target)) // with the correct target
 
 	// notify pool that the node was contacted successfully
 	// with no new node.
 	state = p.Advance(ctx, epoch, &EventPoolGetCloserNodesSuccess[tiny.Key, tiny.Node]{
-		QueryID:     queryID,
+		ActivityID:  activityID,
 		Target:      target,
 		NodeID:      b,
 		CloserNodes: []tiny.Node{b, c}, // returns additional node
@@ -133,24 +133,24 @@ func TestPoolFollowUpLifecycle(t *testing.T) {
 	st, ok = state.(*StatePoolFindCloser[tiny.Key, tiny.Node])
 	require.True(t, ok)
 
-	require.Equal(t, queryID, st.QueryID)         // the query should be the same
+	require.Equal(t, activityID, st.ActivityID)   // the query should be the same
 	require.Equal(t, c, st.NodeID)                // the query should attempt to contact the newly discovered node
 	require.True(t, key.Equal(target, st.Target)) // with the correct target
 
 	// this last node times out -> start contacting the other two
 	timeoutErr := fmt.Errorf("timeout")
 	state = p.Advance(ctx, epoch, &EventPoolGetCloserNodesFailure[tiny.Key, tiny.Node]{
-		QueryID: queryID,
-		NodeID:  c,
-		Target:  target,
-		Error:   timeoutErr,
+		ActivityID: activityID,
+		NodeID:     c,
+		Target:     target,
+		Error:      timeoutErr,
 	})
 
 	// This means we should start the follow-up phase
 	srState, ok := state.(*StatePoolStoreRecord[tiny.Key, tiny.Node, tiny.Message])
 	require.True(t, ok, "state is %T", state)
 
-	require.Equal(t, queryID, srState.QueryID)
+	require.Equal(t, activityID, srState.ActivityID)
 	firstContactedNode := srState.NodeID
 	require.True(t, a == srState.NodeID || b == srState.NodeID) // we should contact either node - there's no inherent order
 	require.Equal(t, msg.Content, srState.Message.Content)
@@ -161,7 +161,7 @@ func TestPoolFollowUpLifecycle(t *testing.T) {
 	srState, ok = state.(*StatePoolStoreRecord[tiny.Key, tiny.Node, tiny.Message])
 	require.True(t, ok, "state is %T", state)
 
-	require.Equal(t, queryID, srState.QueryID)
+	require.Equal(t, activityID, srState.ActivityID)
 	require.True(t, a == srState.NodeID || b == srState.NodeID) // we should contact either node - there's no inherent order
 	require.NotEqual(t, firstContactedNode, srState.NodeID)     // should be the other one now
 	require.Equal(t, msg.Content, srState.Message.Content)
@@ -172,25 +172,25 @@ func TestPoolFollowUpLifecycle(t *testing.T) {
 
 	// first response from storing the record comes back
 	state = p.Advance(ctx, epoch, &EventPoolStoreRecordSuccess[tiny.Key, tiny.Node, tiny.Message]{
-		QueryID: queryID,
-		NodeID:  a,
-		Request: msg,
+		ActivityID: activityID,
+		NodeID:     a,
+		Request:    msg,
 	})
 	require.IsType(t, &StatePoolWaiting{}, state)
 
 	// second response from storing the record comes back and it failed!
 	state = p.Advance(ctx, epoch, &EventPoolStoreRecordFailure[tiny.Key, tiny.Node, tiny.Message]{
-		QueryID: queryID,
-		NodeID:  b,
-		Request: msg,
-		Error:   timeoutErr,
+		ActivityID: activityID,
+		NodeID:     b,
+		Request:    msg,
+		Error:      timeoutErr,
 	})
 
 	// since we have contacted all nodes we knew, the publish has finished
 	finishState, ok := state.(*StatePoolPublishFinished[tiny.Key, tiny.Node])
 	require.True(t, ok, "state is %T", state)
 
-	require.Equal(t, queryID, finishState.QueryID)
+	require.Equal(t, activityID, finishState.ActivityID)
 	require.Len(t, finishState.Contacted, 2)
 	require.Len(t, finishState.Errors, 1)
 	require.Equal(t, finishState.Errors[b.String()].Node, b)
@@ -199,7 +199,7 @@ func TestPoolFollowUpLifecycle(t *testing.T) {
 	state = p.Advance(ctx, epoch, &EventPoolPoll{})
 	require.IsType(t, &StatePoolIdle{}, state)
 
-	require.Nil(t, p.bcs[queryID]) // should have been removed
+	require.Nil(t, p.bcs[activityID]) // should have been removed
 }
 
 // TestPoolStopsNamedPublish checks that the pool delivers a stop to the publish the event
@@ -212,23 +212,23 @@ func TestPoolStopsNamedPublish(t *testing.T) {
 	require.NoError(t, err)
 
 	msg := tiny.Message{Content: "store this"}
-	queryID := coordt.QueryID("test")
+	activityID := coordt.ActivityID("test")
 
 	state := p.Advance(ctx, epoch, &EventPoolStartStatic[tiny.Key, tiny.Node, tiny.Message]{
-		QueryID: queryID,
-		Target:  tiny.Key(0b00000001),
-		Message: msg,
-		Nodes:   []tiny.Node{tiny.NewNode(0b00000100)},
+		ActivityID: activityID,
+		Target:     tiny.Key(0b00000001),
+		Message:    msg,
+		Nodes:      []tiny.Node{tiny.NewNode(0b00000100)},
 	})
 	require.IsType(t, &StatePoolStoreRecord[tiny.Key, tiny.Node, tiny.Message]{}, state)
 
-	state = p.Advance(ctx, epoch, &EventPoolStopPublish{QueryID: queryID})
+	state = p.Advance(ctx, epoch, &EventPoolStopPublish{ActivityID: activityID})
 
 	st, ok := state.(*StatePoolPublishFinished[tiny.Key, tiny.Node])
 	require.True(t, ok, "state is %T", state)
-	require.Equal(t, queryID, st.QueryID)
+	require.Equal(t, activityID, st.ActivityID)
 
-	require.Nil(t, p.bcs[queryID]) // should have been removed
+	require.Nil(t, p.bcs[activityID]) // should have been removed
 
 	state = p.Advance(ctx, epoch, &EventPoolPoll{})
 	require.IsType(t, &StatePoolIdle{}, state)
@@ -263,13 +263,13 @@ func TestPoolReportsNextDue(t *testing.T) {
 	target := tiny.Key(0b00000001)
 	a := tiny.NewNode(0b00000100) // 4
 
-	queryID := coordt.QueryID("test")
+	activityID := coordt.ActivityID("test")
 
 	state := p.Advance(ctx, epoch, &EventPoolStartFollowUp[tiny.Key, tiny.Node, tiny.Message]{
-		QueryID: queryID,
-		Target:  target,
-		Message: msg,
-		Seed:    []tiny.Node{a},
+		ActivityID: activityID,
+		Target:     target,
+		Message:    msg,
+		Seed:       []tiny.Node{a},
 	})
 	require.IsType(t, &StatePoolFindCloser[tiny.Key, tiny.Node]{}, state)
 
@@ -281,7 +281,7 @@ func TestPoolReportsNextDue(t *testing.T) {
 	// the node responds with no closer node, ending the query and starting the
 	// follow-up phase
 	state = p.Advance(ctx, epoch, &EventPoolGetCloserNodesSuccess[tiny.Key, tiny.Node]{
-		QueryID:     queryID,
+		ActivityID:  activityID,
 		Target:      target,
 		NodeID:      a,
 		CloserNodes: []tiny.Node{a},
@@ -308,53 +308,53 @@ func TestPoolAdvancesEveryPublish(t *testing.T) {
 	msg := tiny.Message{Content: "store this"}
 	target := tiny.Key(0b00000001)
 
-	first := coordt.QueryID("first")
-	second := coordt.QueryID("second")
+	first := coordt.ActivityID("first")
+	second := coordt.ActivityID("second")
 
 	// a static publish takes its seed nodes as work to do, with no query phase, so both
 	// publishes can be driven to the point of waiting without involving the query pool
 	state := p.Advance(ctx, epoch, &EventPoolStartStatic[tiny.Key, tiny.Node, tiny.Message]{
-		QueryID: first,
-		Target:  target,
-		Message: msg,
-		Nodes:   []tiny.Node{tiny.NewNode(0b00000100), tiny.NewNode(0b00000101)},
+		ActivityID: first,
+		Target:     target,
+		Message:    msg,
+		Nodes:      []tiny.Node{tiny.NewNode(0b00000100), tiny.NewNode(0b00000101)},
 	})
 	srState, ok := state.(*StatePoolStoreRecord[tiny.Key, tiny.Node, tiny.Message])
 	require.True(t, ok, "state is %T", state)
-	require.Equal(t, first, srState.QueryID)
+	require.Equal(t, first, srState.ActivityID)
 	firstContacted := srState.NodeID
 
 	// the first publish's other node is contacted too, leaving it waiting on both
 	state = p.Advance(ctx, epoch, &EventPoolPoll{})
 	srState, ok = state.(*StatePoolStoreRecord[tiny.Key, tiny.Node, tiny.Message])
 	require.True(t, ok, "state is %T", state)
-	require.Equal(t, first, srState.QueryID)
+	require.Equal(t, first, srState.ActivityID)
 
 	// the second publish starts and contacts one of its two nodes, keeping the other to do
 	state = p.Advance(ctx, epoch, &EventPoolStartStatic[tiny.Key, tiny.Node, tiny.Message]{
-		QueryID: second,
-		Target:  target,
-		Message: msg,
-		Nodes:   []tiny.Node{tiny.NewNode(0b00000110), tiny.NewNode(0b00000111)},
+		ActivityID: second,
+		Target:     target,
+		Message:    msg,
+		Nodes:      []tiny.Node{tiny.NewNode(0b00000110), tiny.NewNode(0b00000111)},
 	})
 	srState, ok = state.(*StatePoolStoreRecord[tiny.Key, tiny.Node, tiny.Message])
 	require.True(t, ok, "state is %T", state)
-	require.Equal(t, second, srState.QueryID)
+	require.Equal(t, second, srState.ActivityID)
 	secondContacted := srState.NodeID
 
 	// one of the first publish's records lands, which leaves it waiting on the other and
 	// with nothing of its own to do
 	state = p.Advance(ctx, epoch, &EventPoolStoreRecordSuccess[tiny.Key, tiny.Node, tiny.Message]{
-		QueryID: first,
-		NodeID:  firstContacted,
-		Request: msg,
+		ActivityID: first,
+		NodeID:     firstContacted,
+		Request:    msg,
 	})
 
 	// the pool should hand out the second publish's remaining node rather than report
 	// that it is waiting on the first
 	srState, ok = state.(*StatePoolStoreRecord[tiny.Key, tiny.Node, tiny.Message])
 	require.True(t, ok, "state is %T", state)
-	require.Equal(t, second, srState.QueryID)
+	require.Equal(t, second, srState.ActivityID)
 	require.NotEqual(t, secondContacted, srState.NodeID)
 }
 
@@ -372,24 +372,24 @@ func TestPoolReportsEarliestNextDueAcrossPublishes(t *testing.T) {
 	msg := tiny.Message{Content: "store this"}
 	target := tiny.Key(0b00000001)
 
-	followUp := coordt.QueryID("followup")
-	static := coordt.QueryID("static")
+	followUp := coordt.ActivityID("followup")
+	static := coordt.ActivityID("static")
 
 	// a follow up publish in its query phase waits on a request that carries a deadline
 	state := p.Advance(ctx, epoch, &EventPoolStartFollowUp[tiny.Key, tiny.Node, tiny.Message]{
-		QueryID: followUp,
-		Target:  target,
-		Message: msg,
-		Seed:    []tiny.Node{tiny.NewNode(0b00000100)},
+		ActivityID: followUp,
+		Target:     target,
+		Message:    msg,
+		Seed:       []tiny.Node{tiny.NewNode(0b00000100)},
 	})
 	require.IsType(t, &StatePoolFindCloser[tiny.Key, tiny.Node]{}, state)
 
 	// a static publish waits on store record requests, which carry no deadline
 	state = p.Advance(ctx, epoch, &EventPoolStartStatic[tiny.Key, tiny.Node, tiny.Message]{
-		QueryID: static,
-		Target:  target,
-		Message: msg,
-		Nodes:   []tiny.Node{tiny.NewNode(0b00000110), tiny.NewNode(0b00000111)},
+		ActivityID: static,
+		Target:     target,
+		Message:    msg,
+		Nodes:      []tiny.Node{tiny.NewNode(0b00000110), tiny.NewNode(0b00000111)},
 	})
 	srState, ok := state.(*StatePoolStoreRecord[tiny.Key, tiny.Node, tiny.Message])
 	require.True(t, ok, "state is %T", state)
@@ -398,13 +398,13 @@ func TestPoolReportsEarliestNextDueAcrossPublishes(t *testing.T) {
 	state = p.Advance(ctx, epoch, &EventPoolPoll{})
 	srState, ok = state.(*StatePoolStoreRecord[tiny.Key, tiny.Node, tiny.Message])
 	require.True(t, ok, "state is %T", state)
-	require.Equal(t, static, srState.QueryID)
+	require.Equal(t, static, srState.ActivityID)
 
 	// one of the static publish's records lands, leaving every publish waiting
 	state = p.Advance(ctx, epoch, &EventPoolStoreRecordSuccess[tiny.Key, tiny.Node, tiny.Message]{
-		QueryID: static,
-		NodeID:  staticContacted,
-		Request: msg,
+		ActivityID: static,
+		NodeID:     staticContacted,
+		Request:    msg,
 	})
 
 	// the request deadline is the only instant at which the pool could make progress, so the

@@ -241,10 +241,10 @@ func (b *NetworkBehaviour[K, N, M]) Notify(ctx context.Context, ev BehaviourEven
 			b.logger.Debug("dropped request to find closer nodes", logAttrNodeID(ev.To))
 			if ev.Notify != nil {
 				ev.Notify.Notify(ctx, &EventGetCloserNodesFailure[K, N]{
-					QueryID: ev.QueryID,
-					To:      ev.To,
-					Target:  ev.Target,
-					Err:     ErrRequestDropped,
+					ActivityID: ev.ActivityID,
+					To:         ev.To,
+					Target:     ev.Target,
+					Err:        ErrRequestDropped,
 				})
 			}
 		}
@@ -254,10 +254,10 @@ func (b *NetworkBehaviour[K, N, M]) Notify(ctx context.Context, ev BehaviourEven
 			b.logger.Debug("dropped request to send message", logAttrNodeID(ev.To))
 			if ev.Notify != nil {
 				ev.Notify.Notify(ctx, &EventSendMessageFailure[K, N, M]{
-					QueryID: ev.QueryID,
-					To:      ev.To,
-					Request: ev.Message,
-					Err:     ErrRequestDropped,
+					ActivityID: ev.ActivityID,
+					To:         ev.To,
+					Request:    ev.Message,
+					Err:        ErrRequestDropped,
 				})
 			}
 		}
@@ -464,16 +464,16 @@ func (h *NodeHandler[K, N, M]) send(ctx context.Context, ev NodeHandlerRequest) 
 		nodes, err := h.rtr.GetClosestNodes(ctx, h.self, cmd.Target)
 		if err != nil {
 			cmd.Notify.Notify(ctx, &EventGetCloserNodesFailure[K, N]{
-				QueryID: cmd.QueryID,
-				To:      h.self,
-				Target:  cmd.Target,
-				Err:     fmt.Errorf("NodeHandler: %w", err),
+				ActivityID: cmd.ActivityID,
+				To:         h.self,
+				Target:     cmd.Target,
+				Err:        fmt.Errorf("NodeHandler: %w", err),
 			})
 			return
 		}
 
 		cmd.Notify.Notify(ctx, &EventGetCloserNodesSuccess[K, N]{
-			QueryID:     cmd.QueryID,
+			ActivityID:  cmd.ActivityID,
 			To:          h.self,
 			Target:      cmd.Target,
 			CloserNodes: nodes,
@@ -485,16 +485,16 @@ func (h *NodeHandler[K, N, M]) send(ctx context.Context, ev NodeHandlerRequest) 
 		resp, err := h.rtr.SendMessage(ctx, h.self, cmd.Message)
 		if err != nil {
 			cmd.Notify.Notify(ctx, &EventSendMessageFailure[K, N, M]{
-				QueryID: cmd.QueryID,
-				To:      h.self,
-				Request: cmd.Message,
-				Err:     fmt.Errorf("NodeHandler: %w", err),
+				ActivityID: cmd.ActivityID,
+				To:         h.self,
+				Request:    cmd.Message,
+				Err:        fmt.Errorf("NodeHandler: %w", err),
 			})
 			return
 		}
 
 		cmd.Notify.Notify(ctx, &EventSendMessageSuccess[K, N, M]{
-			QueryID:     cmd.QueryID,
+			ActivityID:  cmd.ActivityID,
 			To:          h.self,
 			Request:     cmd.Message,
 			Response:    resp,

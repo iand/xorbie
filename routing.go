@@ -20,16 +20,6 @@ import (
 	"github.com/iand/xorbie/routing"
 )
 
-const (
-	// IncludeQueryID is the id for connectivity checks performed by the include state machine.
-	// This identifier is used for routing network responses to the state machine.
-	IncludeQueryID = coordt.QueryID("include")
-
-	// ProbeQueryID is the id for connectivity checks performed by the probe state machine
-	// This identifier is used for routing network responses to the state machine.
-	ProbeQueryID = coordt.QueryID("probe")
-)
-
 type RoutingConfig[K kad.Key[K], N kad.NodeID[K]] struct {
 	// Logger is a structured logger that will be used when logging.
 	Logger *slog.Logger
@@ -808,9 +798,9 @@ func (r *RoutingBehaviour[K, N]) performNextInbound() (BehaviourEvent, bool) {
 		return r.advanceProbe(ctx, now, cmd)
 
 	case *EventGetCloserNodesSuccess[K, N]:
-		span.SetAttributes(attribute.String("event", "EventGetCloserNodesSuccess"), attribute.String("queryid", string(ev.QueryID)), attribute.String("nodeid", ev.To.String()))
-		switch ev.QueryID {
-		case routing.BootstrapQueryID:
+		span.SetAttributes(attribute.String("event", "EventGetCloserNodesSuccess"), attribute.String("activityid", string(ev.ActivityID)), attribute.String("nodeid", ev.To.String()))
+		switch ev.ActivityID {
+		case routing.BootstrapActivityID:
 			for _, info := range ev.CloserNodes {
 				// TODO: do this after advancing bootstrap
 				r.pendingOutbound = append(r.pendingOutbound, &EventAddNode[K, N]{
@@ -824,7 +814,7 @@ func (r *RoutingBehaviour[K, N]) performNextInbound() (BehaviourEvent, bool) {
 			// attempt to advance the bootstrap
 			return r.advanceBootstrap(ctx, now, cmd)
 
-		case IncludeQueryID:
+		case routing.IncludeActivityID:
 			var cmd routing.IncludeEvent
 			// require that the node responded with at least one closer node
 			if len(ev.CloserNodes) > 0 {
@@ -840,7 +830,7 @@ func (r *RoutingBehaviour[K, N]) performNextInbound() (BehaviourEvent, bool) {
 			// attempt to advance the include
 			return r.advanceInclude(ctx, now, cmd)
 
-		case ProbeQueryID:
+		case routing.ProbeActivityID:
 			var cmd routing.ProbeEvent
 			// require that the node responded with at least one closer node
 			if len(ev.CloserNodes) > 0 {
@@ -856,7 +846,7 @@ func (r *RoutingBehaviour[K, N]) performNextInbound() (BehaviourEvent, bool) {
 			// attempt to advance the probe state machine
 			return r.advanceProbe(ctx, now, cmd)
 
-		case routing.ExploreQueryID:
+		case routing.ExploreActivityID:
 			for _, info := range ev.CloserNodes {
 				r.pendingOutbound = append(r.pendingOutbound, &EventAddNode[K, N]{
 					NodeID: info,
@@ -868,7 +858,7 @@ func (r *RoutingBehaviour[K, N]) performNextInbound() (BehaviourEvent, bool) {
 			}
 			return r.advanceExplore(ctx, now, cmd)
 
-		case routing.SurveyQueryID:
+		case routing.SurveyActivityID:
 			cmd := &routing.EventSurveyFindCloserResponse[K, N]{
 				NodeID:      ev.To,
 				CloserNodes: ev.CloserNodes,
@@ -876,13 +866,13 @@ func (r *RoutingBehaviour[K, N]) performNextInbound() (BehaviourEvent, bool) {
 			return r.advanceSurvey(ctx, now, cmd)
 
 		default:
-			panic(fmt.Sprintf("unexpected query id: %s", ev.QueryID))
+			panic(fmt.Sprintf("unexpected activity id: %s", ev.ActivityID))
 		}
 	case *EventGetCloserNodesFailure[K, N]:
-		span.SetAttributes(attribute.String("event", "EventGetCloserNodesFailure"), attribute.String("queryid", string(ev.QueryID)), attribute.String("nodeid", ev.To.String()))
+		span.SetAttributes(attribute.String("event", "EventGetCloserNodesFailure"), attribute.String("activityid", string(ev.ActivityID)), attribute.String("nodeid", ev.To.String()))
 		span.RecordError(ev.Err)
-		switch ev.QueryID {
-		case routing.BootstrapQueryID:
+		switch ev.ActivityID {
+		case routing.BootstrapActivityID:
 			cmd := &routing.EventBootstrapFindCloserFailure[K, N]{
 				NodeID: ev.To,
 				Error:  ev.Err,
@@ -890,7 +880,7 @@ func (r *RoutingBehaviour[K, N]) performNextInbound() (BehaviourEvent, bool) {
 			// attempt to advance the bootstrap
 			return r.advanceBootstrap(ctx, now, cmd)
 
-		case IncludeQueryID:
+		case routing.IncludeActivityID:
 			var cmd routing.IncludeEvent = &routing.EventIncludeConnectivityCheckFailure[K, N]{
 				NodeID: ev.To,
 				Error:  ev.Err,
@@ -903,7 +893,7 @@ func (r *RoutingBehaviour[K, N]) performNextInbound() (BehaviourEvent, bool) {
 			// attempt to advance the include state machine
 			return r.advanceInclude(ctx, now, cmd)
 
-		case ProbeQueryID:
+		case routing.ProbeActivityID:
 			var cmd routing.ProbeEvent = &routing.EventProbeConnectivityCheckFailure[K, N]{
 				NodeID: ev.To,
 				Error:  ev.Err,
@@ -916,7 +906,7 @@ func (r *RoutingBehaviour[K, N]) performNextInbound() (BehaviourEvent, bool) {
 			// attempt to advance the probe state machine
 			return r.advanceProbe(ctx, now, cmd)
 
-		case routing.ExploreQueryID:
+		case routing.ExploreActivityID:
 			cmd := &routing.EventExploreFindCloserFailure[K, N]{
 				NodeID: ev.To,
 				Error:  ev.Err,
@@ -924,7 +914,7 @@ func (r *RoutingBehaviour[K, N]) performNextInbound() (BehaviourEvent, bool) {
 			// attempt to advance the explore
 			return r.advanceExplore(ctx, now, cmd)
 
-		case routing.SurveyQueryID:
+		case routing.SurveyActivityID:
 			cmd := &routing.EventSurveyFindCloserFailure[K, N]{
 				NodeID: ev.To,
 				Error:  ev.Err,
@@ -933,7 +923,7 @@ func (r *RoutingBehaviour[K, N]) performNextInbound() (BehaviourEvent, bool) {
 			return r.advanceSurvey(ctx, now, cmd)
 
 		default:
-			panic(fmt.Sprintf("unexpected query id: %s", ev.QueryID))
+			panic(fmt.Sprintf("unexpected activity id: %s", ev.ActivityID))
 		}
 	case *EventNotifyConnectivity[K, N]:
 		span.SetAttributes(attribute.String("event", "EventNotifyConnectivity"), attribute.String("nodeid", ev.NodeID.String()))
@@ -1016,10 +1006,10 @@ func (r *RoutingBehaviour[K, N]) advanceBootstrap(ctx context.Context, now time.
 
 	case *routing.StateBootstrapFindCloser[K, N]:
 		return &EventOutboundGetCloserNodes[K, N]{
-			QueryID: routing.BootstrapQueryID,
-			To:      st.NodeID,
-			Target:  st.Target,
-			Notify:  r,
+			ActivityID: routing.BootstrapActivityID,
+			To:         st.NodeID,
+			Target:     st.Target,
+			Notify:     r,
 		}, true
 
 	case *routing.StateBootstrapWaiting:
@@ -1066,10 +1056,10 @@ func (r *RoutingBehaviour[K, N]) advanceInclude(ctx context.Context, now time.Ti
 		// include wants to send a find node message to a node
 		r.cfg.Logger.Debug("starting connectivity check", logAttrNodeID(st.NodeID), "source", "include")
 		return &EventOutboundGetCloserNodes[K, N]{
-			QueryID: IncludeQueryID,
-			To:      st.NodeID,
-			Target:  st.NodeID.Key(),
-			Notify:  r,
+			ActivityID: routing.IncludeActivityID,
+			To:         st.NodeID,
+			Target:     st.NodeID.Key(),
+			Notify:     r,
 		}, true
 
 	case *routing.StateIncludeRoutingUpdated[K, N]:
@@ -1115,10 +1105,10 @@ func (r *RoutingBehaviour[K, N]) advanceProbe(ctx context.Context, now time.Time
 		// include wants to send a find node message to a node
 		r.cfg.Logger.Debug("starting connectivity check", logAttrNodeID(st.NodeID), "source", "probe")
 		return &EventOutboundGetCloserNodes[K, N]{
-			QueryID: ProbeQueryID,
-			To:      st.NodeID,
-			Target:  st.NodeID.Key(),
-			Notify:  r,
+			ActivityID: routing.ProbeActivityID,
+			To:         st.NodeID,
+			Target:     st.NodeID.Key(),
+			Notify:     r,
 		}, true
 	case *routing.StateProbeNodeFailure[K, N]:
 		// a node has failed a connectivity check and been removed from the routing table and the probe list
@@ -1167,10 +1157,10 @@ func (r *RoutingBehaviour[K, N]) advanceExplore(ctx context.Context, now time.Ti
 	case *routing.StateExploreFindCloser[K, N]:
 		r.cfg.Logger.Debug("starting explore", slog.Int("cpl", st.Cpl), logAttrNodeID(st.NodeID))
 		return &EventOutboundGetCloserNodes[K, N]{
-			QueryID: routing.ExploreQueryID,
-			To:      st.NodeID,
-			Target:  st.Target,
-			Notify:  r,
+			ActivityID: routing.ExploreActivityID,
+			To:         st.NodeID,
+			Target:     st.Target,
+			Notify:     r,
 		}, true
 
 	case *routing.StateExploreWaiting:
@@ -1222,10 +1212,10 @@ func (r *RoutingBehaviour[K, N]) advanceSurvey(ctx context.Context, now time.Tim
 	case *routing.StateSurveyFindCloser[K, N]:
 		r.cfg.Logger.Debug("starting survey", logAttrNodeID(st.NodeID))
 		return &EventOutboundGetCloserNodes[K, N]{
-			QueryID: routing.SurveyQueryID,
-			To:      st.NodeID,
-			Target:  st.Target,
-			Notify:  r,
+			ActivityID: routing.SurveyActivityID,
+			To:         st.NodeID,
+			Target:     st.Target,
+			Notify:     r,
 		}, true
 
 	case *routing.StateSurveyWaiting:

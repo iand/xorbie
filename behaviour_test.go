@@ -116,7 +116,7 @@ func buildWaitingQueryBehaviour(timeout, requestTimeout time.Duration) func(t *t
 
 		b := newTestQueryBehaviour(t, timeout, requestTimeout, nodes[0].NodeID)
 		b.Notify(ctx, &EventStartFindCloserQuery[tiny.Key, tiny.Node, tiny.Message]{
-			QueryID:           "test",
+			ActivityID:        "test",
 			Target:            nodes[1].NodeID.Key(),
 			KnownClosestNodes: []tiny.Node{nodes[1].NodeID},
 		})
@@ -225,7 +225,7 @@ func buildWaitingPublishBehaviour(t *testing.T, ctx context.Context) Behaviour[B
 
 	msg := tiny.Message{Content: "store"}
 	b.Notify(ctx, &EventStartFollowUpPublish[tiny.Key, tiny.Node, tiny.Message]{
-		QueryID:           "test",
+		ActivityID:        "test",
 		Target:            msg.Target(),
 		Message:           msg,
 		KnownClosestNodes: []tiny.Node{nodes[1].NodeID},
@@ -385,28 +385,28 @@ func TestInboundQueueBoundsItsLength(t *testing.T) {
 	q := newInboundQueue(2)
 	require.True(t, q.empty())
 
-	require.True(t, q.enqueue(CtxEvent[BehaviourEvent]{Event: &EventStopQuery{QueryID: "a"}}))
-	require.True(t, q.enqueue(CtxEvent[BehaviourEvent]{Event: &EventStopQuery{QueryID: "b"}}))
-	require.False(t, q.enqueue(CtxEvent[BehaviourEvent]{Event: &EventStopQuery{QueryID: "c"}}))
+	require.True(t, q.enqueue(CtxEvent[BehaviourEvent]{Event: &EventStopQuery{ActivityID: "a"}}))
+	require.True(t, q.enqueue(CtxEvent[BehaviourEvent]{Event: &EventStopQuery{ActivityID: "b"}}))
+	require.False(t, q.enqueue(CtxEvent[BehaviourEvent]{Event: &EventStopQuery{ActivityID: "c"}}))
 
 	require.False(t, q.empty())
 	require.Equal(t, int64(2), q.depth.Load())
 
 	ce, ok := q.dequeue()
 	require.True(t, ok)
-	require.Equal(t, coordt.QueryID("a"), ce.Event.(*EventStopQuery).QueryID)
+	require.Equal(t, coordt.ActivityID("a"), ce.Event.(*EventStopQuery).ActivityID)
 	require.Equal(t, int64(1), q.depth.Load())
 
 	// the space freed by the dequeue is available again
-	require.True(t, q.enqueue(CtxEvent[BehaviourEvent]{Event: &EventStopQuery{QueryID: "d"}}))
+	require.True(t, q.enqueue(CtxEvent[BehaviourEvent]{Event: &EventStopQuery{ActivityID: "d"}}))
 
 	ce, ok = q.dequeue()
 	require.True(t, ok)
-	require.Equal(t, coordt.QueryID("b"), ce.Event.(*EventStopQuery).QueryID)
+	require.Equal(t, coordt.ActivityID("b"), ce.Event.(*EventStopQuery).ActivityID)
 
 	ce, ok = q.dequeue()
 	require.True(t, ok)
-	require.Equal(t, coordt.QueryID("d"), ce.Event.(*EventStopQuery).QueryID)
+	require.Equal(t, coordt.ActivityID("d"), ce.Event.(*EventStopQuery).ActivityID)
 
 	_, ok = q.dequeue()
 	require.False(t, ok)

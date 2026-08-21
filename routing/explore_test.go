@@ -160,7 +160,7 @@ func TestExploreFirstQueriesForMaximumCpl(t *testing.T) {
 	st := state.(*StateExploreFindCloser[tiny.Key, tiny.Node])
 
 	// the query should have the correct ID
-	require.Equal(t, ExploreQueryID, st.QueryID)
+	require.Equal(t, ExploreActivityID, st.ActivityID)
 
 	// with the correct cpl
 	require.Equal(t, schedule.maxCpl, st.Cpl)
@@ -421,7 +421,7 @@ func TestExploreQueriesNextHighestCpl(t *testing.T) {
 	st := state.(*StateExploreFindCloser[tiny.Key, tiny.Node])
 
 	// the query should have the correct ID
-	require.Equal(t, ExploreQueryID, st.QueryID)
+	require.Equal(t, ExploreActivityID, st.ActivityID)
 
 	// with the correct cpl
 	require.Equal(t, schedule.maxCpl, st.Cpl)

@@ -27,6 +27,9 @@ type RoutingTableCpl[K kad.Key[K], N kad.NodeID[K]] interface {
 	CplSize(cpl int) int
 }
 
+// ProbeActivityID is the id for the activity operated by the probe process.
+const ProbeActivityID = coordt.ActivityID("probe")
+
 // The Probe state machine performs regular connectivity checks for nodes in a routing table.
 //
 // The state machine is notified of a new entry in the routing table via the [EventProbeAdd] event. This adds the node

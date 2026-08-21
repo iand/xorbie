@@ -128,7 +128,7 @@ type Query[K kad.Key[K], N kad.NodeID[K], M coordt.Message[K, N]] struct {
 	self N
 
 	// id is the query id the query reports its progress under
-	id coordt.QueryID
+	id coordt.ActivityID
 
 	// cfg is a copy of the optional configuration supplied to the query
 	cfg QueryConfig
@@ -199,7 +199,7 @@ type Query[K kad.Key[K], N kad.NodeID[K], M coordt.Message[K, N]] struct {
 // The query is seeded with knownClosestNodes, from which self is excluded, and orders every
 // node it learns of using iter. It reports its progress under the query id id. A nil cfg
 // uses [DefaultQueryConfig], and a non-nil one is validated.
-func NewFindCloserQuery[K kad.Key[K], N kad.NodeID[K], M coordt.Message[K, N]](self N, id coordt.QueryID, target K, iter NodeIter[K, N], knownClosestNodes []N, cfg *QueryConfig) (*Query[K, N, M], error) {
+func NewFindCloserQuery[K kad.Key[K], N kad.NodeID[K], M coordt.Message[K, N]](self N, id coordt.ActivityID, target K, iter NodeIter[K, N], knownClosestNodes []N, cfg *QueryConfig) (*Query[K, N, M], error) {
 	var empty M
 	q, err := NewQuery(self, id, target, empty, iter, knownClosestNodes, cfg)
 	if err != nil {
@@ -218,7 +218,7 @@ func NewFindCloserQuery[K kad.Key[K], N kad.NodeID[K], M coordt.Message[K, N]](s
 // target is any key inside the region. QueryConfig.NumResults is the walk-in bound
 // rather than a result cap: if the query contacts that many nodes without entering
 // the region it concludes the region is empty. The result is never truncated to it.
-func NewCoverageQuery[K kad.Key[K], N kad.NodeID[K], M coordt.Message[K, N]](self N, id coordt.QueryID, target K, prefixLen int, iter NodeIter[K, N], knownClosestNodes []N, cfg *QueryConfig) (*Query[K, N, M], error) {
+func NewCoverageQuery[K kad.Key[K], N kad.NodeID[K], M coordt.Message[K, N]](self N, id coordt.ActivityID, target K, prefixLen int, iter NodeIter[K, N], knownClosestNodes []N, cfg *QueryConfig) (*Query[K, N, M], error) {
 	if prefixLen < 0 || prefixLen > target.BitLen() {
 		return nil, &coordt.ConfigurationError{
 			Component: "Query",
@@ -247,7 +247,7 @@ func (q *Query[K, N, M]) inPrefix(k K) bool {
 // The query is seeded with knownClosestNodes, from which self is excluded, and orders every
 // node it learns of using iter. It reports its progress under the query id id. A nil cfg
 // uses [DefaultQueryConfig], and a non-nil one is validated.
-func NewQuery[K kad.Key[K], N kad.NodeID[K], M coordt.Message[K, N]](self N, id coordt.QueryID, target K, msg M, iter NodeIter[K, N], knownClosestNodes []N, cfg *QueryConfig) (*Query[K, N, M], error) {
+func NewQuery[K kad.Key[K], N kad.NodeID[K], M coordt.Message[K, N]](self N, id coordt.ActivityID, target K, msg M, iter NodeIter[K, N], knownClosestNodes []N, cfg *QueryConfig) (*Query[K, N, M], error) {
 	if cfg == nil {
 		cfg = DefaultQueryConfig()
 	} else if err := cfg.Validate(); err != nil {
@@ -284,7 +284,7 @@ func (q *Query[K, N, M]) Advance(ctx context.Context, now time.Time, ev QueryEve
 
 	if q.finished {
 		return &StateQueryFinished[K, N]{
-			QueryID:      q.id,
+			ActivityID:   q.id,
 			Stats:        q.stats,
 			Target:       q.target,
 			ClosestNodes: q.targetNodes,
@@ -295,7 +295,7 @@ func (q *Query[K, N, M]) Advance(ctx context.Context, now time.Time, ev QueryEve
 	case *EventQueryCancel:
 		q.markFinished(ctx, now)
 		return &StateQueryFinished[K, N]{
-			QueryID:      q.id,
+			ActivityID:   q.id,
 			Stats:        q.stats,
 			Target:       q.target,
 			ClosestNodes: q.targetNodes,
@@ -367,7 +367,7 @@ func (q *Query[K, N, M]) Advance(ctx context.Context, now time.Time, ev QueryEve
 			if !progressing && successes >= q.cfg.NumResults {
 				q.markFinished(ctx, now)
 				returnState = &StateQueryFinished[K, N]{
-					QueryID:      q.id,
+					ActivityID:   q.id,
 					Stats:        q.stats,
 					Target:       q.target,
 					ClosestNodes: q.targetNodes,
@@ -383,7 +383,7 @@ func (q *Query[K, N, M]) Advance(ctx context.Context, now time.Time, ev QueryEve
 				// the walk-in bound. Report the region's members.
 				q.markFinished(ctx, now)
 				returnState = &StateQueryFinished[K, N]{
-					QueryID:      q.id,
+					ActivityID:   q.id,
 					Stats:        q.stats,
 					Target:       q.target,
 					ClosestNodes: q.targetNodes,
@@ -402,17 +402,17 @@ func (q *Query[K, N, M]) Advance(ctx context.Context, now time.Time, ev QueryEve
 
 				if q.findCloser {
 					returnState = &StateQueryFindCloser[K, N]{
-						NodeID:  ni.NodeID,
-						QueryID: q.id,
-						Stats:   q.stats,
-						Target:  q.target,
+						NodeID:     ni.NodeID,
+						ActivityID: q.id,
+						Stats:      q.stats,
+						Target:     q.target,
 					}
 				} else {
 					returnState = &StateQuerySendMessage[K, N, M]{
-						NodeID:  ni.NodeID,
-						QueryID: q.id,
-						Stats:   q.stats,
-						Message: q.msg,
+						NodeID:     ni.NodeID,
+						ActivityID: q.id,
+						Stats:      q.stats,
+						Message:    q.msg,
 					}
 				}
 				return true
@@ -439,10 +439,10 @@ func (q *Query[K, N, M]) Advance(ctx context.Context, now time.Time, ev QueryEve
 	if atCapacityWaiting {
 		q.nextDue = q.earliestNodeDeadline(ctx)
 		return &StateQueryWaitingAtCapacity{
-			QueryID:  q.id,
-			Stats:    q.stats,
-			Deadline: q.deadline,
-			NextDue:  q.nextDue,
+			ActivityID: q.id,
+			Stats:      q.stats,
+			Deadline:   q.deadline,
+			NextDue:    q.nextDue,
 		}
 	}
 
@@ -450,10 +450,10 @@ func (q *Query[K, N, M]) Advance(ctx context.Context, now time.Time, ev QueryEve
 		// The iterator is still waiting for results and not at capacity
 		q.nextDue = q.earliestNodeDeadline(ctx)
 		return &StateQueryWaitingWithCapacity{
-			QueryID:  q.id,
-			Stats:    q.stats,
-			Deadline: q.deadline,
-			NextDue:  q.nextDue,
+			ActivityID: q.id,
+			Stats:      q.stats,
+			Deadline:   q.deadline,
+			NextDue:    q.nextDue,
 		}
 	}
 
@@ -461,7 +461,7 @@ func (q *Query[K, N, M]) Advance(ctx context.Context, now time.Time, ev QueryEve
 	// and the iterator is not waiting for any more results.
 	q.markFinished(ctx, now)
 	return &StateQueryFinished[K, N]{
-		QueryID:      q.id,
+		ActivityID:   q.id,
 		Stats:        q.stats,
 		Target:       q.target,
 		ClosestNodes: q.targetNodes,
@@ -597,7 +597,7 @@ type QueryState interface {
 
 // StateQueryFinished indicates that the [Query] has finished.
 type StateQueryFinished[K kad.Key[K], N kad.NodeID[K]] struct {
-	QueryID      coordt.QueryID
+	ActivityID   coordt.ActivityID
 	Stats        QueryStats
 	Target       K   // the key the query was looking for the closest nodes to
 	ClosestNodes []N // the nodes the query settled on: the closest to the target, or a coverage query's region members
@@ -605,34 +605,34 @@ type StateQueryFinished[K kad.Key[K], N kad.NodeID[K]] struct {
 
 // StateQueryFindCloser indicates that the [Query] wants to send a find closer nodes message to a node.
 type StateQueryFindCloser[K kad.Key[K], N kad.NodeID[K]] struct {
-	QueryID coordt.QueryID
-	Target  K // the key that the query wants to find closer nodes for
-	NodeID  N // the node to send the message to
-	Stats   QueryStats
+	ActivityID coordt.ActivityID
+	Target     K // the key that the query wants to find closer nodes for
+	NodeID     N // the node to send the message to
+	Stats      QueryStats
 }
 
 // StateQuerySendMessage indicates that the [Query] wants to send a message to a node.
 type StateQuerySendMessage[K kad.Key[K], N kad.NodeID[K], M coordt.Message[K, N]] struct {
-	QueryID coordt.QueryID
-	NodeID  N // the node to send the message to
-	Message M
-	Stats   QueryStats
+	ActivityID coordt.ActivityID
+	NodeID     N // the node to send the message to
+	Message    M
+	Stats      QueryStats
 }
 
 // StateQueryWaitingAtCapacity indicates that the [Query] is waiting for results and is at capacity.
 type StateQueryWaitingAtCapacity struct {
-	QueryID  coordt.QueryID
-	Stats    QueryStats
-	Deadline time.Time // the time by which the query must have completed
-	NextDue  time.Time // the earliest time advancing the query could make progress, zero if there is none
+	ActivityID coordt.ActivityID
+	Stats      QueryStats
+	Deadline   time.Time // the time by which the query must have completed
+	NextDue    time.Time // the earliest time advancing the query could make progress, zero if there is none
 }
 
 // StateQueryWaitingWithCapacity indicates that the [Query] is waiting for results but has no further nodes to contact.
 type StateQueryWaitingWithCapacity struct {
-	QueryID  coordt.QueryID
-	Stats    QueryStats
-	Deadline time.Time // the time by which the query must have completed
-	NextDue  time.Time // the earliest time advancing the query could make progress, zero if there is none
+	ActivityID coordt.ActivityID
+	Stats      QueryStats
+	Deadline   time.Time // the time by which the query must have completed
+	NextDue    time.Time // the earliest time advancing the query could make progress, zero if there is none
 }
 
 // queryState() ensures that only [Query] states can be assigned to a QueryState.

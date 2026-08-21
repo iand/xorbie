@@ -67,10 +67,10 @@ func (*EventStartBootstrap[K, N]) behaviourEvent() {}
 func (*EventStartBootstrap[K, N]) routingCommand() {}
 
 type EventOutboundGetCloserNodes[K kad.Key[K], N kad.NodeID[K]] struct {
-	QueryID coordt.QueryID
-	To      N
-	Target  K
-	Notify  Notify[BehaviourEvent]
+	ActivityID coordt.ActivityID
+	To         N
+	Target     K
+	Notify     Notify[BehaviourEvent]
 }
 
 func (*EventOutboundGetCloserNodes[K, N]) behaviourEvent()     {}
@@ -78,10 +78,10 @@ func (*EventOutboundGetCloserNodes[K, N]) nodeHandlerRequest() {}
 func (*EventOutboundGetCloserNodes[K, N]) networkCommand()     {}
 
 type EventOutboundSendMessage[K kad.Key[K], N kad.NodeID[K], M coordt.Message[K, N]] struct {
-	QueryID coordt.QueryID
-	To      N
-	Message M
-	Notify  Notify[BehaviourEvent]
+	ActivityID coordt.ActivityID
+	To         N
+	Message    M
+	Notify     Notify[BehaviourEvent]
 }
 
 func (*EventOutboundSendMessage[K, N, M]) behaviourEvent()     {}
@@ -89,7 +89,7 @@ func (*EventOutboundSendMessage[K, N, M]) nodeHandlerRequest() {}
 func (*EventOutboundSendMessage[K, N, M]) networkCommand()     {}
 
 type EventStartMessageQuery[K kad.Key[K], N kad.NodeID[K], M coordt.Message[K, N]] struct {
-	QueryID           coordt.QueryID
+	ActivityID        coordt.ActivityID
 	Target            K
 	Message           M
 	KnownClosestNodes []N
@@ -101,7 +101,7 @@ func (*EventStartMessageQuery[K, N, M]) behaviourEvent() {}
 func (*EventStartMessageQuery[K, N, M]) queryCommand()   {}
 
 type EventStartFindCloserQuery[K kad.Key[K], N kad.NodeID[K], M coordt.Message[K, N]] struct {
-	QueryID           coordt.QueryID
+	ActivityID        coordt.ActivityID
 	Target            K
 	KnownClosestNodes []N
 	Notify            QueryMonitor[K, N, M, *EventQueryFinished[K, N]]
@@ -112,7 +112,7 @@ func (*EventStartFindCloserQuery[K, N, M]) behaviourEvent() {}
 func (*EventStartFindCloserQuery[K, N, M]) queryCommand()   {}
 
 type EventStopQuery struct {
-	QueryID coordt.QueryID
+	ActivityID coordt.ActivityID
 }
 
 func (*EventStopQuery) behaviourEvent() {}
@@ -121,7 +121,7 @@ func (*EventStopQuery) queryCommand()   {}
 // EventStartFollowUpPublish starts a publish that finds the nodes closest to the target key
 // before storing the record with any of them.
 type EventStartFollowUpPublish[K kad.Key[K], N kad.NodeID[K], M coordt.Message[K, N]] struct {
-	QueryID           coordt.QueryID
+	ActivityID        coordt.ActivityID
 	Target            K
 	Message           M
 	KnownClosestNodes []N
@@ -130,17 +130,17 @@ type EventStartFollowUpPublish[K kad.Key[K], N kad.NodeID[K], M coordt.Message[K
 
 // EventStartStaticPublish starts a publish that stores the record with a fixed set of nodes.
 type EventStartStaticPublish[K kad.Key[K], N kad.NodeID[K], M coordt.Message[K, N]] struct {
-	QueryID coordt.QueryID
-	Target  K
-	Message M
-	Nodes   []N
-	Notify  QueryMonitor[K, N, M, *EventPublishFinished[K, N]]
+	ActivityID coordt.ActivityID
+	Target     K
+	Message    M
+	Nodes      []N
+	Notify     QueryMonitor[K, N, M, *EventPublishFinished[K, N]]
 }
 
 // EventStartOptimisticPublish starts a publish that stores the record with nodes as the walk
 // towards the target key finds them.
 type EventStartOptimisticPublish[K kad.Key[K], N kad.NodeID[K], M coordt.Message[K, N]] struct {
-	QueryID           coordt.QueryID
+	ActivityID        coordt.ActivityID
 	Target            K
 	Message           M
 	KnownClosestNodes []N
@@ -151,9 +151,9 @@ type EventStartOptimisticPublish[K kad.Key[K], N kad.NodeID[K], M coordt.Message
 // EventStartRegionPublish instructs the publish behaviour to publish every provided key in a
 // surveyed region.
 type EventStartRegionPublish[K kad.Key[K], N kad.NodeID[K]] struct {
-	QueryID coordt.QueryID // the id of the region publish, from which its per-key publish ids derive
-	Prefix  bitstr.Key     // the prefix of the surveyed region
-	Nodes   []N            // the nodes found inside the region
+	ActivityID coordt.ActivityID // the id of the region publish, from which its per-key publish ids derive
+	Prefix     bitstr.Key        // the prefix of the surveyed region
+	Nodes      []N               // the nodes found inside the region
 }
 
 func (*EventStartFollowUpPublish[K, N, M]) behaviourEvent()   {}
@@ -172,7 +172,7 @@ func (*EventAddNode[K, N]) routingCommand() {}
 // EventGetCloserNodesSuccess notifies a behaviour that a GetCloserNodes request, initiated by an
 // [EventOutboundGetCloserNodes] event has produced a successful response.
 type EventGetCloserNodesSuccess[K kad.Key[K], N kad.NodeID[K]] struct {
-	QueryID     coordt.QueryID
+	ActivityID  coordt.ActivityID
 	To          N // To is the node that the GetCloserNodes request was sent to.
 	Target      K
 	CloserNodes []N
@@ -184,10 +184,10 @@ func (*EventGetCloserNodesSuccess[K, N]) nodeHandlerResponse() {}
 // EventGetCloserNodesFailure notifies a behaviour that a GetCloserNodes request, initiated by an
 // [EventOutboundGetCloserNodes] event has failed to produce a valid response.
 type EventGetCloserNodesFailure[K kad.Key[K], N kad.NodeID[K]] struct {
-	QueryID coordt.QueryID
-	To      N // To is the node that the GetCloserNodes request was sent to.
-	Target  K
-	Err     error
+	ActivityID coordt.ActivityID
+	To         N // To is the node that the GetCloserNodes request was sent to.
+	Target     K
+	Err        error
 }
 
 func (*EventGetCloserNodesFailure[K, N]) behaviourEvent()      {}
@@ -196,7 +196,7 @@ func (*EventGetCloserNodesFailure[K, N]) nodeHandlerResponse() {}
 // EventSendMessageSuccess notifies a behaviour that a SendMessage request, initiated by an
 // [EventOutboundSendMessage] event has produced a successful response.
 type EventSendMessageSuccess[K kad.Key[K], N kad.NodeID[K], M coordt.Message[K, N]] struct {
-	QueryID     coordt.QueryID
+	ActivityID  coordt.ActivityID
 	Request     M
 	To          N // To is the node that the SendMessage request was sent to.
 	Response    M
@@ -209,11 +209,11 @@ func (*EventSendMessageSuccess[K, N, M]) nodeHandlerResponse() {}
 // EventSendMessageFailure notifies a behaviour that a SendMessage request, initiated by an
 // [EventOutboundSendMessage] event has failed to produce a valid response.
 type EventSendMessageFailure[K kad.Key[K], N kad.NodeID[K], M coordt.Message[K, N]] struct {
-	QueryID coordt.QueryID
-	Request M
-	To      N // To is the node that the SendMessage request was sent to.
-	Target  K
-	Err     error
+	ActivityID coordt.ActivityID
+	Request    M
+	To         N // To is the node that the SendMessage request was sent to.
+	Target     K
+	Err        error
 }
 
 func (*EventSendMessageFailure[K, N, M]) behaviourEvent()      {}
@@ -222,10 +222,10 @@ func (*EventSendMessageFailure[K, N, M]) nodeHandlerResponse() {}
 // EventQueryProgressed is emitted by the coordinator when a query has received a
 // response from a node.
 type EventQueryProgressed[K kad.Key[K], N kad.NodeID[K], M coordt.Message[K, N]] struct {
-	QueryID  coordt.QueryID
-	NodeID   N
-	Response M
-	Stats    query.QueryStats
+	ActivityID coordt.ActivityID
+	NodeID     N
+	Response   M
+	Stats      query.QueryStats
 }
 
 func (*EventQueryProgressed[K, N, M]) behaviourEvent() {}
@@ -233,7 +233,7 @@ func (*EventQueryProgressed[K, N, M]) behaviourEvent() {}
 // EventQueryFinished is emitted by the coordinator when a query has finished, either through
 // running to completion or by being canceled.
 type EventQueryFinished[K kad.Key[K], N kad.NodeID[K]] struct {
-	QueryID      coordt.QueryID
+	ActivityID   coordt.ActivityID
 	Stats        query.QueryStats
 	ClosestNodes []N
 
@@ -250,9 +250,9 @@ func (*EventQueryFinished[K, N]) terminalQueryEvent() {}
 // a record to the network has finished, either through running to completion or
 // by being canceled.
 type EventPublishFinished[K kad.Key[K], N kad.NodeID[K]] struct {
-	QueryID   coordt.QueryID
-	Contacted []N
-	Errors    map[string]struct {
+	ActivityID coordt.ActivityID
+	Contacted  []N
+	Errors     map[string]struct {
 		Node N
 		Err  error
 	}

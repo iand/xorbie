@@ -40,8 +40,8 @@ import (
 //
 // This is the algorithm used by the original go-libp2p-kad-dht v1 code base.
 type FollowUp[K kad.Key[K], N kad.NodeID[K], M coordt.Message[K, N]] struct {
-	// queryID is the unique id of this publish operation
-	queryID coordt.QueryID
+	// activityID is the unique id of this publish operation
+	activityID coordt.ActivityID
 
 	// queryPool is the pool in which the find closer nodes query is run. It belongs to the
 	// publish pool that created this state machine and is shared with its siblings, so
@@ -83,16 +83,16 @@ type FollowUp[K kad.Key[K], N kad.NodeID[K], M coordt.Message[K, N]] struct {
 
 // NewFollowUp creates a state machine that publishes msg to the nodes closest to the target
 // it is started with, querying from seeds in pool and reporting progress under the query id qid.
-func NewFollowUp[K kad.Key[K], N kad.NodeID[K], M coordt.Message[K, N]](qid coordt.QueryID, pool *query.Pool[K, N, M], msg M, seeds []N, tracer trace.Tracer) *FollowUp[K, N, M] {
+func NewFollowUp[K kad.Key[K], N kad.NodeID[K], M coordt.Message[K, N]](qid coordt.ActivityID, pool *query.Pool[K, N, M], msg M, seeds []N, tracer trace.Tracer) *FollowUp[K, N, M] {
 	return &FollowUp[K, N, M]{
-		queryID:   qid,
-		queryPool: pool,
-		tracer:    tracer,
-		msg:       msg,
-		seeds:     seeds,
-		todo:      map[string]N{},
-		waiting:   map[string]N{},
-		success:   map[string]N{},
+		activityID: qid,
+		queryPool:  pool,
+		tracer:     tracer,
+		msg:        msg,
+		seeds:      seeds,
+		todo:       map[string]N{},
+		waiting:    map[string]N{},
+		success:    map[string]N{},
 		failed: map[string]struct {
 			Node N
 			Err  error
@@ -143,9 +143,9 @@ func (f *FollowUp[K, N, M]) Advance(ctx context.Context, now time.Time, ev Publi
 		delete(f.todo, k)
 		f.waiting[k] = n
 		return &StatePublishStoreRecord[K, N, M]{
-			QueryID: f.queryID,
-			NodeID:  n,
-			Message: f.msg,
+			ActivityID: f.activityID,
+			NodeID:     n,
+			Message:    f.msg,
 		}
 	}
 
@@ -157,7 +157,7 @@ func (f *FollowUp[K, N, M]) Advance(ctx context.Context, now time.Time, ev Publi
 
 	if isStopEvent || (len(f.todo) == 0 && len(f.closest) != 0) {
 		return &StatePublishFinished[K, N]{
-			QueryID:    f.queryID,
+			ActivityID: f.activityID,
 			Contacted:  f.closest,
 			Errors:     f.failed,
 			QueryStats: f.queryStats,
@@ -181,9 +181,9 @@ func (f *FollowUp[K, N, M]) handleEvent(ctx context.Context, ev PublishEvent) (o
 	switch ev := ev.(type) {
 	case *EventPublishStart[K, N]:
 		return &query.EventPoolAddFindCloserQuery[K, N]{
-			QueryID: f.queryID,
-			Target:  ev.Target,
-			Seed:    f.seeds,
+			ActivityID: f.activityID,
+			Target:     ev.Target,
+			Seed:       f.seeds,
 		}
 	case *EventPublishStop:
 		if f.isQueryDone() {
@@ -191,19 +191,19 @@ func (f *FollowUp[K, N, M]) handleEvent(ctx context.Context, ev PublishEvent) (o
 		}
 
 		return &query.EventPoolStopQuery{
-			QueryID: f.queryID,
+			ActivityID: f.activityID,
 		}
 	case *EventPublishNodeResponse[K, N]:
 		return &query.EventPoolNodeResponse[K, N]{
-			QueryID:     f.queryID,
+			ActivityID:  f.activityID,
 			NodeID:      ev.NodeID,
 			CloserNodes: ev.CloserNodes,
 		}
 	case *EventPublishNodeFailure[K, N]:
 		return &query.EventPoolNodeFailure[K, N]{
-			QueryID: f.queryID,
-			NodeID:  ev.NodeID,
-			Error:   ev.Error,
+			ActivityID: f.activityID,
+			NodeID:     ev.NodeID,
+			Error:      ev.Error,
 		}
 	case *EventPublishStoreRecordSuccess[K, N, M]:
 		delete(f.waiting, ev.NodeID.String())
@@ -238,27 +238,27 @@ func (f *FollowUp[K, N, M]) advancePool(ctx context.Context, now time.Time, ev q
 	switch st := state.(type) {
 	case *query.StatePoolFindCloser[K, N]:
 		return &StatePublishFindCloser[K, N]{
-			QueryID: st.QueryID,
-			NodeID:  st.NodeID,
-			Target:  st.Target,
+			ActivityID: st.ActivityID,
+			NodeID:     st.NodeID,
+			Target:     st.Target,
 		}, true
 	case *query.StatePoolWaitingAtCapacity:
 		return &StatePublishWaiting{
-			QueryID: f.queryID,
-			NextDue: st.NextDue,
+			ActivityID: f.activityID,
+			NextDue:    st.NextDue,
 		}, true
 	case *query.StatePoolWaitingWithCapacity:
 		return &StatePublishWaiting{
-			QueryID: f.queryID,
-			NextDue: st.NextDue,
+			ActivityID: f.activityID,
+			NextDue:    st.NextDue,
 		}, true
 	case *query.StatePoolQueryFinished[K, N]:
 		f.queryStats = st.Stats
 
 		if len(st.ClosestNodes) == 0 {
 			return &StatePublishFinished[K, N]{
-				QueryID:   f.queryID,
-				Contacted: make([]N, 0),
+				ActivityID: f.activityID,
+				Contacted:  make([]N, 0),
 				Errors: map[string]struct {
 					Node N
 					Err  error
@@ -277,8 +277,8 @@ func (f *FollowUp[K, N, M]) advancePool(ctx context.Context, now time.Time, ev q
 		f.queryStats = st.Stats
 
 		return &StatePublishFinished[K, N]{
-			QueryID:   f.queryID,
-			Contacted: make([]N, 0),
+			ActivityID: f.activityID,
+			Contacted:  make([]N, 0),
 			Errors: map[string]struct {
 				Node N
 				Err  error

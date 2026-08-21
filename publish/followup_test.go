@@ -25,7 +25,7 @@ func newFollowUpTest(t *testing.T, qcfg *query.PoolConfig, seeds ...tiny.Node) *
 	require.NoError(t, err)
 
 	msg := tiny.Message{Content: "store this"}
-	return NewFollowUp(testQueryID, qp, msg, seeds, coordt.NoopTracer())
+	return NewFollowUp(testActivityID, qp, msg, seeds, coordt.NoopTracer())
 }
 
 // TestFollowUpQueriesBeforeStoring checks that a follow up publish finds the nodes closest
@@ -46,7 +46,7 @@ func TestFollowUpQueriesBeforeStoring(t *testing.T) {
 	})
 	fcState, ok := state.(*StatePublishFindCloser[tiny.Key, tiny.Node])
 	require.True(t, ok, "state is %T", state)
-	require.Equal(t, testQueryID, fcState.QueryID)
+	require.Equal(t, testActivityID, fcState.ActivityID)
 	require.Equal(t, a, fcState.NodeID)
 
 	// the node knows of nobody closer, which ends the query and starts the second phase
@@ -56,7 +56,7 @@ func TestFollowUpQueriesBeforeStoring(t *testing.T) {
 	})
 	srState, ok := state.(*StatePublishStoreRecord[tiny.Key, tiny.Node, tiny.Message])
 	require.True(t, ok, "state is %T", state)
-	require.Equal(t, testQueryID, srState.QueryID)
+	require.Equal(t, testActivityID, srState.ActivityID)
 	require.Equal(t, a, srState.NodeID)
 	require.Equal(t, "store this", srState.Message.Content)
 
@@ -96,7 +96,7 @@ func TestFollowUpFinishesWhenQueryFindsNoNodes(t *testing.T) {
 
 	st, ok := state.(*StatePublishFinished[tiny.Key, tiny.Node])
 	require.True(t, ok, "state is %T", state)
-	require.Equal(t, testQueryID, st.QueryID)
+	require.Equal(t, testActivityID, st.ActivityID)
 	require.Empty(t, st.Contacted)
 	require.Empty(t, st.Errors)
 }
@@ -122,7 +122,7 @@ func TestFollowUpWaitsAtQueryPoolCapacity(t *testing.T) {
 
 	state = sm.Advance(ctx, now, &EventPublishPoll{})
 	require.IsType(t, &StatePublishWaiting{}, state)
-	require.Equal(t, testQueryID, state.(*StatePublishWaiting).QueryID)
+	require.Equal(t, testActivityID, state.(*StatePublishWaiting).ActivityID)
 	require.Equal(t, now.Add(qcfg.RequestTimeout), state.(*StatePublishWaiting).NextDue)
 }
 
@@ -158,7 +158,7 @@ func TestFollowUpFinishesWhenQueryTimesOut(t *testing.T) {
 
 	st, ok := state.(*StatePublishFinished[tiny.Key, tiny.Node])
 	require.True(t, ok, "state is %T", state)
-	require.Equal(t, testQueryID, st.QueryID)
+	require.Equal(t, testActivityID, st.ActivityID)
 	require.Empty(t, st.Contacted)
 	require.Empty(t, st.Errors)
 }
@@ -180,7 +180,7 @@ func TestFollowUpStopDuringQueryFinishes(t *testing.T) {
 
 	st, ok := state.(*StatePublishFinished[tiny.Key, tiny.Node])
 	require.True(t, ok, "state is %T", state)
-	require.Equal(t, testQueryID, st.QueryID)
+	require.Equal(t, testActivityID, st.ActivityID)
 	require.Empty(t, st.Contacted)
 }
 

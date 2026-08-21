@@ -100,7 +100,7 @@ func TestBootstrapStart(t *testing.T) {
 	st := state.(*StateBootstrapFindCloser[tiny.Key, tiny.Node])
 
 	// the query should be the one just added
-	require.Equal(t, coordt.QueryID("bootstrap"), st.QueryID)
+	require.Equal(t, coordt.ActivityID("bootstrap"), st.ActivityID)
 
 	// the query should attempt to contact the node it was given
 	require.Equal(t, a, st.NodeID)
@@ -132,7 +132,7 @@ func TestBootstrapMessageResponse(t *testing.T) {
 
 	// the bootstrap should attempt to contact the node it was given
 	st := state.(*StateBootstrapFindCloser[tiny.Key, tiny.Node])
-	require.Equal(t, coordt.QueryID("bootstrap"), st.QueryID)
+	require.Equal(t, coordt.ActivityID("bootstrap"), st.ActivityID)
 	require.Equal(t, a, st.NodeID)
 
 	// notify bootstrap that node was contacted successfully, but no closer nodes
@@ -176,7 +176,7 @@ func TestBootstrapProgress(t *testing.T) {
 	// the bootstrap should attempt to contact the closest node it was given
 	require.IsType(t, &StateBootstrapFindCloser[tiny.Key, tiny.Node]{}, state)
 	st := state.(*StateBootstrapFindCloser[tiny.Key, tiny.Node])
-	require.Equal(t, coordt.QueryID("bootstrap"), st.QueryID)
+	require.Equal(t, coordt.ActivityID("bootstrap"), st.ActivityID)
 	require.Equal(t, a, st.NodeID)
 
 	// next the bootstrap attempts to contact second nearest node
@@ -253,7 +253,7 @@ func TestBootstrapFinishesThenGoesIdle(t *testing.T) {
 
 	// the bootstrap should attempt to contact the node it was given
 	st := state.(*StateBootstrapFindCloser[tiny.Key, tiny.Node])
-	require.Equal(t, coordt.QueryID("bootstrap"), st.QueryID)
+	require.Equal(t, coordt.ActivityID("bootstrap"), st.ActivityID)
 	require.Equal(t, a, st.NodeID)
 
 	// notify bootstrap that node was contacted successfully, but no closer nodes
@@ -291,7 +291,7 @@ func TestBootstrapFinishedIgnoresLaterResponses(t *testing.T) {
 
 	// the bootstrap should attempt to contact the node it was given
 	st := state.(*StateBootstrapFindCloser[tiny.Key, tiny.Node])
-	require.Equal(t, coordt.QueryID("bootstrap"), st.QueryID)
+	require.Equal(t, coordt.ActivityID("bootstrap"), st.ActivityID)
 	require.Equal(t, b, st.NodeID)
 
 	// notify bootstrap that node was contacted successfully with a closer node
@@ -347,7 +347,7 @@ func TestBootstrapFinishedIgnoresLaterFailures(t *testing.T) {
 
 	// the bootstrap should attempt to contact the node it was given
 	st := state.(*StateBootstrapFindCloser[tiny.Key, tiny.Node])
-	require.Equal(t, coordt.QueryID("bootstrap"), st.QueryID)
+	require.Equal(t, coordt.ActivityID("bootstrap"), st.ActivityID)
 	require.Equal(t, b, st.NodeID)
 
 	// notify bootstrap that node was contacted successfully with a closer node

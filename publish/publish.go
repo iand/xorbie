@@ -20,26 +20,26 @@ type PublishState interface {
 // layer that a [Publish] state machine wants to query the given node (NodeID)
 // for closer nodes to the target key (Target).
 type StatePublishFindCloser[K kad.Key[K], N kad.NodeID[K]] struct {
-	QueryID coordt.QueryID // the id of the publish operation that wants to send the message
-	NodeID  N              // the node to send the message to
-	Target  K              // the key that the query wants to find closer nodes for
+	ActivityID coordt.ActivityID // the id of the publish operation that wants to send the message
+	NodeID     N                 // the node to send the message to
+	Target     K                 // the key that the query wants to find closer nodes for
 }
 
 // StatePublishStoreRecord indicates to the publish [Pool] or any other
 // upper layer that a [Publish] state machine wants to store a record using
 // the given Message with the given NodeID.
 type StatePublishStoreRecord[K kad.Key[K], N kad.NodeID[K], M coordt.Message[K, N]] struct {
-	QueryID coordt.QueryID // the id of the publish operation that wants to send the message
-	NodeID  N              // the node to send the message to
-	Message M              // the message the publish behaviour wants to send
+	ActivityID coordt.ActivityID // the id of the publish operation that wants to send the message
+	NodeID     N                 // the node to send the message to
+	Message    M                 // the message the publish behaviour wants to send
 }
 
 // StatePublishWaiting indicates that a [Publish] state machine is waiting
 // for network I/O to finish. It means the state machine isn't idle, but that
 // there are operations in-flight that it is waiting on to finish.
 type StatePublishWaiting struct {
-	NextDue time.Time      // the earliest time advancing the publish could make progress, zero if there is none
-	QueryID coordt.QueryID // the id of the publish operation that is waiting
+	NextDue    time.Time         // the earliest time advancing the publish could make progress, zero if there is none
+	ActivityID coordt.ActivityID // the id of the publish operation that is waiting
 }
 
 // StatePublishFinished indicates that a [Publish] state machine has finished its
@@ -48,9 +48,9 @@ type StatePublishWaiting struct {
 // in Contacted and holds the error that node returned, so an operation in which every store
 // succeeded carries an empty map.
 type StatePublishFinished[K kad.Key[K], N kad.NodeID[K]] struct {
-	QueryID   coordt.QueryID      // the id of the publish operation that has finished
-	Contacted []N                 // all nodes asked to store the record, successful or not
-	Errors    map[string]struct { // the error returned by any contacted node that failed
+	ActivityID coordt.ActivityID   // the id of the publish operation that has finished
+	Contacted  []N                 // all nodes asked to store the record, successful or not
+	Errors     map[string]struct { // the error returned by any contacted node that failed
 		Node N     // a node from the Contacted slice
 		Err  error // the error that happened when contacting that Node
 	}

@@ -17,8 +17,8 @@ import (
 	"github.com/iand/xorbie/query"
 )
 
-// ExploreQueryID is the id for the query operated by the explore process
-const ExploreQueryID = coordt.QueryID("explore")
+// ExploreActivityID is the id for the activity operated by the explore process
+const ExploreActivityID = coordt.ActivityID("explore")
 
 // The Explore state machine is used to discover new nodes at various distances from the local node in order to improve
 // the occupancy of routing table buckets.
@@ -280,7 +280,7 @@ func (e *Explore[K, N]) Advance(ctx context.Context, now time.Time, ev ExploreEv
 	qryCfg.RequestTimeout = e.cfg.RequestTimeout
 	qryCfg.Timeout = e.cfg.Timeout
 
-	qry, err := query.NewFindCloserQuery[K, N, coordt.NoMessage[K, N]](e.self, ExploreQueryID, node.Key(), iter, seeds, qryCfg)
+	qry, err := query.NewFindCloserQuery[K, N, coordt.NoMessage[K, N]](e.self, ExploreActivityID, node.Key(), iter, seeds, qryCfg)
 	if err != nil {
 		return &StateExploreFailure{
 			Cpl:   cpl,
@@ -303,11 +303,11 @@ func (e *Explore[K, N]) advanceQuery(ctx context.Context, now time.Time, qev que
 	case *query.StateQueryFindCloser[K, N]:
 		e.counterFindSent.Add(ctx, 1, metric.WithAttributeSet(e.cplAttributeSet.Load().(attribute.Set)))
 		return &StateExploreFindCloser[K, N]{
-			Cpl:     e.qryCpl,
-			QueryID: st.QueryID,
-			Stats:   st.Stats,
-			NodeID:  st.NodeID,
-			Target:  st.Target,
+			Cpl:        e.qryCpl,
+			ActivityID: st.ActivityID,
+			Stats:      st.Stats,
+			NodeID:     st.NodeID,
+			Target:     st.Target,
 		}
 	case *query.StateQueryFinished[K, N]:
 		span.SetAttributes(attribute.String("out_state", "StateExploreFinished"))
@@ -373,11 +373,11 @@ type StateExploreIdle struct {
 
 // StateExploreFindCloser indicates that the explore query wants to send a find closer nodes message to a node.
 type StateExploreFindCloser[K kad.Key[K], N kad.NodeID[K]] struct {
-	Cpl     int // the cpl being explored
-	QueryID coordt.QueryID
-	Target  K // the key that the query wants to find closer nodes for
-	NodeID  N // the node to send the message to
-	Stats   query.QueryStats
+	Cpl        int // the cpl being explored
+	ActivityID coordt.ActivityID
+	Target     K // the key that the query wants to find closer nodes for
+	NodeID     N // the node to send the message to
+	Stats      query.QueryStats
 }
 
 // StateExploreWaiting indicates that the explore query is waiting for a response.

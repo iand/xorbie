@@ -138,7 +138,7 @@ type QueryBehaviour[K kad.Key[K], N kad.NodeID[K], M coordt.Message[K, N]] struc
 
 	// notifiers is a map that keeps track of event notifications for each running query.
 	// it must only be accessed while performMu is held
-	notifiers map[coordt.QueryID]*queryNotifier[K, N, M, *EventQueryFinished[K, N]]
+	notifiers map[coordt.ActivityID]*queryNotifier[K, N, M, *EventQueryFinished[K, N]]
 
 	// pendingOutbound is a queue of outbound events.
 	// it must only be accessed while performMu is held
@@ -194,7 +194,7 @@ func NewQueryBehaviour[K kad.Key[K], N kad.NodeID[K], M coordt.Message[K, N]](se
 	h := &QueryBehaviour[K, N, M]{
 		cfg:       *cfg,
 		pool:      pool,
-		notifiers: make(map[coordt.QueryID]*queryNotifier[K, N, M, *EventQueryFinished[K, N]]),
+		notifiers: make(map[coordt.ActivityID]*queryNotifier[K, N, M, *EventQueryFinished[K, N]]),
 		inbound:   newInboundQueue(cfg.QueueCapacity),
 		ready:     make(chan struct{}, 1),
 	}
@@ -248,14 +248,14 @@ func (p *QueryBehaviour[K, N, M]) Notify(ctx context.Context, ev BehaviourEvent)
 // event that starts a query leaves a caller waiting on its monitor for a terminal event that
 // would otherwise never arrive.
 func (p *QueryBehaviour[K, N, M]) reportDropped(ctx context.Context, ev BehaviourEvent) {
-	var queryID coordt.QueryID
+	var activityID coordt.ActivityID
 	var monitor QueryMonitor[K, N, M, *EventQueryFinished[K, N]]
 
 	switch ev := ev.(type) {
 	case *EventStartFindCloserQuery[K, N, M]:
-		queryID, monitor = ev.QueryID, ev.Notify
+		activityID, monitor = ev.ActivityID, ev.Notify
 	case *EventStartMessageQuery[K, N, M]:
-		queryID, monitor = ev.QueryID, ev.Notify
+		activityID, monitor = ev.ActivityID, ev.Notify
 	default:
 		return
 	}
@@ -265,7 +265,7 @@ func (p *QueryBehaviour[K, N, M]) reportDropped(ctx context.Context, ev Behaviou
 	}
 
 	n := &queryNotifier[K, N, M, *EventQueryFinished[K, N]]{monitor: monitor}
-	n.NotifyFinished(ctx, &EventQueryFinished[K, N]{QueryID: queryID, Err: ErrEventDropped})
+	n.NotifyFinished(ctx, &EventQueryFinished[K, N]{ActivityID: activityID, Err: ErrEventDropped})
 }
 
 // Ready returns a channel that signals when the query behaviour is ready to
@@ -339,45 +339,45 @@ func (p *QueryBehaviour[K, N, M]) performNextInbound(ctx context.Context) (Behav
 	switch ev := pev.Event.(type) {
 	case *EventStartFindCloserQuery[K, N, M]:
 		cmd = &query.EventPoolAddFindCloserQuery[K, N]{
-			QueryID: ev.QueryID,
-			Target:  ev.Target,
-			Seed:    ev.KnownClosestNodes,
+			ActivityID: ev.ActivityID,
+			Target:     ev.Target,
+			Seed:       ev.KnownClosestNodes,
 		}
 		if ev.Notify != nil {
-			p.notifiers[ev.QueryID] = &queryNotifier[K, N, M, *EventQueryFinished[K, N]]{monitor: ev.Notify}
+			p.notifiers[ev.ActivityID] = &queryNotifier[K, N, M, *EventQueryFinished[K, N]]{monitor: ev.Notify}
 		}
 	case *EventStartMessageQuery[K, N, M]:
 		cmd = &query.EventPoolAddQuery[K, N, M]{
-			QueryID: ev.QueryID,
-			Target:  ev.Target,
-			Message: ev.Message,
-			Seed:    ev.KnownClosestNodes,
+			ActivityID: ev.ActivityID,
+			Target:     ev.Target,
+			Message:    ev.Message,
+			Seed:       ev.KnownClosestNodes,
 		}
 		if ev.Notify != nil {
-			p.notifiers[ev.QueryID] = &queryNotifier[K, N, M, *EventQueryFinished[K, N]]{monitor: ev.Notify}
+			p.notifiers[ev.ActivityID] = &queryNotifier[K, N, M, *EventQueryFinished[K, N]]{monitor: ev.Notify}
 		}
 	case *EventStopQuery:
 		cmd = &query.EventPoolStopQuery{
-			QueryID: ev.QueryID,
+			ActivityID: ev.ActivityID,
 		}
 	case *EventGetCloserNodesSuccess[K, N]:
 		p.queueAddNodeEvents(ev.CloserNodes)
-		waiter, ok := p.notifiers[ev.QueryID]
+		waiter, ok := p.notifiers[ev.ActivityID]
 		if ok {
 			// The pool has not advanced on this response yet, so its stats do not count it. This
 			// notification is a successful response, so the copy on the event counts it.
-			stats, _ := p.pool.Stats(ev.QueryID)
+			stats, _ := p.pool.Stats(ev.ActivityID)
 			stats.Success++
 			waiter.TryNotifyProgressed(ctx, &EventQueryProgressed[K, N, M]{
-				NodeID:  ev.To,
-				QueryID: ev.QueryID,
+				NodeID:     ev.To,
+				ActivityID: ev.ActivityID,
 				// CloserNodes: CloserNodeIDs(ev.CloserNodes),
 				Stats: stats,
 			})
 		}
 		cmd = &query.EventPoolNodeResponse[K, N]{
 			NodeID:      ev.To,
-			QueryID:     ev.QueryID,
+			ActivityID:  ev.ActivityID,
 			CloserNodes: ev.CloserNodes,
 		}
 	case *EventGetCloserNodesFailure[K, N]:
@@ -386,28 +386,28 @@ func (p *QueryBehaviour[K, N, M]) performNextInbound(ctx context.Context) (Behav
 		p.queueNonConnectivityEvent(ev.To)
 
 		cmd = &query.EventPoolNodeFailure[K, N]{
-			NodeID:  ev.To,
-			QueryID: ev.QueryID,
-			Error:   ev.Err,
+			NodeID:     ev.To,
+			ActivityID: ev.ActivityID,
+			Error:      ev.Err,
 		}
 	case *EventSendMessageSuccess[K, N, M]:
 		p.queueAddNodeEvents(ev.CloserNodes)
-		waiter, ok := p.notifiers[ev.QueryID]
+		waiter, ok := p.notifiers[ev.ActivityID]
 		if ok {
 			// The pool has not advanced on this response yet, so its stats do not count it. This
 			// notification is a successful response, so the copy on the event counts it.
-			stats, _ := p.pool.Stats(ev.QueryID)
+			stats, _ := p.pool.Stats(ev.ActivityID)
 			stats.Success++
 			waiter.TryNotifyProgressed(ctx, &EventQueryProgressed[K, N, M]{
-				NodeID:   ev.To,
-				QueryID:  ev.QueryID,
-				Response: ev.Response,
-				Stats:    stats,
+				NodeID:     ev.To,
+				ActivityID: ev.ActivityID,
+				Response:   ev.Response,
+				Stats:      stats,
 			})
 		}
 		cmd = &query.EventPoolNodeResponse[K, N]{
 			NodeID:      ev.To,
-			QueryID:     ev.QueryID,
+			ActivityID:  ev.ActivityID,
 			CloserNodes: ev.CloserNodes,
 		}
 	case *EventSendMessageFailure[K, N, M]:
@@ -416,9 +416,9 @@ func (p *QueryBehaviour[K, N, M]) performNextInbound(ctx context.Context) (Behav
 		p.queueNonConnectivityEvent(ev.To)
 
 		cmd = &query.EventPoolNodeFailure[K, N]{
-			NodeID:  ev.To,
-			QueryID: ev.QueryID,
-			Error:   ev.Err,
+			NodeID:     ev.To,
+			ActivityID: ev.ActivityID,
+			Error:      ev.Err,
 		}
 	default:
 		panic(fmt.Sprintf("unexpected dht event: %T", ev))
@@ -471,17 +471,17 @@ func (p *QueryBehaviour[K, N, M]) advancePool(ctx context.Context, now time.Time
 	switch st := pstate.(type) {
 	case *query.StatePoolFindCloser[K, N]:
 		return &EventOutboundGetCloserNodes[K, N]{
-			QueryID: st.QueryID,
-			To:      st.NodeID,
-			Target:  st.Target,
-			Notify:  p,
+			ActivityID: st.ActivityID,
+			To:         st.NodeID,
+			Target:     st.Target,
+			Notify:     p,
 		}, true
 	case *query.StatePoolSendMessage[K, N, M]:
 		return &EventOutboundSendMessage[K, N, M]{
-			QueryID: st.QueryID,
-			To:      st.NodeID,
-			Message: st.Message,
-			Notify:  p,
+			ActivityID: st.ActivityID,
+			To:         st.NodeID,
+			Message:    st.Message,
+			Notify:     p,
 		}, true
 	case *query.StatePoolWaitingAtCapacity:
 		// nothing to do except wait for message response or timeout
@@ -500,7 +500,7 @@ func (p *QueryBehaviour[K, N, M]) advancePool(ctx context.Context, now time.Time
 		// must be advanced again to report when the remaining queries are next due
 		p.pollAgain = true
 		p.notifyQueryFinished(ctx, &EventQueryFinished[K, N]{
-			QueryID:      st.QueryID,
+			ActivityID:   st.ActivityID,
 			Stats:        st.Stats,
 			ClosestNodes: st.ClosestNodes,
 		})
@@ -509,9 +509,9 @@ func (p *QueryBehaviour[K, N, M]) advancePool(ctx context.Context, now time.Time
 		// must be advanced again to report when the remaining queries are next due
 		p.pollAgain = true
 		p.notifyQueryFinished(ctx, &EventQueryFinished[K, N]{
-			QueryID: st.QueryID,
-			Stats:   st.Stats,
-			Err:     coordt.ErrQueryTimeout,
+			ActivityID: st.ActivityID,
+			Stats:      st.Stats,
+			Err:        coordt.ErrQueryTimeout,
 		})
 	case *query.StatePoolIdle:
 		// nothing to do
@@ -526,12 +526,12 @@ func (p *QueryBehaviour[K, N, M]) advancePool(ctx context.Context, now time.Time
 // notifyQueryFinished tells the query's waiter that the query has ended and releases the
 // notifier held for it.
 func (p *QueryBehaviour[K, N, M]) notifyQueryFinished(ctx context.Context, ev *EventQueryFinished[K, N]) {
-	waiter, ok := p.notifiers[ev.QueryID]
+	waiter, ok := p.notifiers[ev.ActivityID]
 	if !ok {
 		return
 	}
 	waiter.NotifyFinished(ctx, ev)
-	delete(p.notifiers, ev.QueryID)
+	delete(p.notifiers, ev.ActivityID)
 }
 
 func (p *QueryBehaviour[K, N, M]) queueAddNodeEvents(nodes []N) {

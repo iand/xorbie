@@ -131,7 +131,7 @@ func newOptimisticTest(t *testing.T, networkSize, replicationFactor int, seeds .
 	cfg.ReplicationFactor = replicationFactor
 
 	msg := tiny.Message{Content: "store this"}
-	sm, err := NewOptimistic(testQueryID, qp, msg, seeds, networkSize, cfg, coordt.NoopTracer())
+	sm, err := NewOptimistic(testActivityID, qp, msg, seeds, networkSize, cfg, coordt.NoopTracer())
 	require.NoError(t, err)
 
 	return sm
@@ -238,7 +238,7 @@ func TestOptimisticReportsWhenTheWalkIsDue(t *testing.T) {
 	state = sm.Advance(ctx, now, &EventPublishPoll{})
 	wState, ok := state.(*StatePublishWaiting)
 	require.True(t, ok, "state is %T", state)
-	require.Equal(t, testQueryID, wState.QueryID)
+	require.Equal(t, testActivityID, wState.ActivityID)
 	require.Equal(t, now.Add(query.DefaultPoolConfig().RequestTimeout), wState.NextDue)
 }
 

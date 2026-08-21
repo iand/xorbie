@@ -11,15 +11,15 @@ import (
 	"github.com/iand/xorbie/internal/tiny"
 )
 
-// testQueryID is the id the publish state machines under test report progress under.
-const testQueryID = coordt.QueryID("test")
+// testActivityID is the id the publish state machines under test report progress under.
+const testActivityID = coordt.ActivityID("test")
 
 // newStaticTest creates a Static state machine for the query id "test" that stores with nodes.
 func newStaticTest(t *testing.T, nodes ...tiny.Node) *Static[tiny.Key, tiny.Node, tiny.Message] {
 	t.Helper()
 
 	msg := tiny.Message{Content: "store this"}
-	return NewStatic(testQueryID, msg, nodes, coordt.NoopTracer())
+	return NewStatic(testActivityID, msg, nodes, coordt.NoopTracer())
 }
 
 // TestStaticContactsEverySeedOnce checks that a static publish asks for its record to be
@@ -38,7 +38,7 @@ func TestStaticContactsEverySeedOnce(t *testing.T) {
 	for range seeds {
 		st, ok := state.(*StatePublishStoreRecord[tiny.Key, tiny.Node, tiny.Message])
 		require.True(t, ok, "state is %T", state)
-		require.Equal(t, testQueryID, st.QueryID)
+		require.Equal(t, testActivityID, st.ActivityID)
 		require.Equal(t, "store this", st.Message.Content)
 		require.False(t, contacted[st.NodeID.String()], "node contacted twice")
 		contacted[st.NodeID.String()] = true
@@ -99,7 +99,7 @@ func TestStaticFinishesWhenEveryStoreIsReported(t *testing.T) {
 
 	st, ok := state.(*StatePublishFinished[tiny.Key, tiny.Node])
 	require.True(t, ok, "state is %T", state)
-	require.Equal(t, testQueryID, st.QueryID)
+	require.Equal(t, testActivityID, st.ActivityID)
 	require.ElementsMatch(t, []tiny.Node{a, b}, st.Contacted)
 	require.Len(t, st.Errors, 1)
 	require.Equal(t, b, st.Errors[b.String()].Node)

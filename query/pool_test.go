@@ -97,13 +97,13 @@ func TestPoolAddFindCloserQueryStartsIfCapacity(t *testing.T) {
 	target := tiny.Key(0b00000001)
 	a := tiny.NewNode(0b00000100) // 4
 
-	queryID := coordt.QueryID("test")
+	activityID := coordt.ActivityID("test")
 
 	// first thing the new pool should do is start the query
 	state := p.Advance(ctx, now, &EventPoolAddFindCloserQuery[tiny.Key, tiny.Node]{
-		QueryID: queryID,
-		Target:  target,
-		Seed:    []tiny.Node{a},
+		ActivityID: activityID,
+		Target:     target,
+		Seed:       []tiny.Node{a},
 	})
 	require.IsType(t, &StatePoolFindCloser[tiny.Key, tiny.Node]{}, state)
 
@@ -111,7 +111,7 @@ func TestPoolAddFindCloserQueryStartsIfCapacity(t *testing.T) {
 	st := state.(*StatePoolFindCloser[tiny.Key, tiny.Node])
 
 	// the query should be the one just added
-	require.Equal(t, queryID, st.QueryID)
+	require.Equal(t, activityID, st.ActivityID)
 
 	// the query should attempt to contact the node it was given
 	require.Equal(t, a, st.NodeID)
@@ -136,14 +136,14 @@ func TestPoolAddQueryStartsIfCapacity(t *testing.T) {
 	target := tiny.Key(0b00000001)
 	a := tiny.NewNode(0b00000100) // 4
 
-	queryID := coordt.QueryID("test")
+	activityID := coordt.ActivityID("test")
 	msg := tiny.Message{Content: "msg"}
 	// first thing the new pool should do is start the query
 	state := p.Advance(ctx, now, &EventPoolAddQuery[tiny.Key, tiny.Node, tiny.Message]{
-		QueryID: queryID,
-		Target:  target,
-		Message: msg,
-		Seed:    []tiny.Node{a},
+		ActivityID: activityID,
+		Target:     target,
+		Message:    msg,
+		Seed:       []tiny.Node{a},
 	})
 	require.IsType(t, &StatePoolSendMessage[tiny.Key, tiny.Node, tiny.Message]{}, state)
 
@@ -151,7 +151,7 @@ func TestPoolAddQueryStartsIfCapacity(t *testing.T) {
 	st := state.(*StatePoolSendMessage[tiny.Key, tiny.Node, tiny.Message])
 
 	// the query should be the one just added
-	require.Equal(t, queryID, st.QueryID)
+	require.Equal(t, activityID, st.ActivityID)
 
 	// the query should attempt to contact the node it was given
 	require.Equal(t, a, st.NodeID)
@@ -176,32 +176,32 @@ func TestPoolNodeResponse(t *testing.T) {
 	target := tiny.Key(0b00000001)
 	a := tiny.NewNode(0b00000100) // 4
 
-	queryID := coordt.QueryID("test")
+	activityID := coordt.ActivityID("test")
 
 	// first thing the new pool should do is start the query
 	state := p.Advance(ctx, now, &EventPoolAddFindCloserQuery[tiny.Key, tiny.Node]{
-		QueryID: queryID,
-		Target:  target,
-		Seed:    []tiny.Node{a},
+		ActivityID: activityID,
+		Target:     target,
+		Seed:       []tiny.Node{a},
 	})
 	require.IsType(t, &StatePoolFindCloser[tiny.Key, tiny.Node]{}, state)
 
 	// the query should attempt to contact the node it was given
 	st := state.(*StatePoolFindCloser[tiny.Key, tiny.Node])
-	require.Equal(t, queryID, st.QueryID)
+	require.Equal(t, activityID, st.ActivityID)
 	require.Equal(t, a, st.NodeID)
 
 	// notify query that node was contacted successfully, but no closer nodes
 	state = p.Advance(ctx, now, &EventPoolNodeResponse[tiny.Key, tiny.Node]{
-		QueryID: queryID,
-		NodeID:  a,
+		ActivityID: activityID,
+		NodeID:     a,
 	})
 
 	// pool should respond that query has finished
 	require.IsType(t, &StatePoolQueryFinished[tiny.Key, tiny.Node]{}, state)
 
 	stf := state.(*StatePoolQueryFinished[tiny.Key, tiny.Node])
-	require.Equal(t, queryID, stf.QueryID)
+	require.Equal(t, activityID, stf.ActivityID)
 	require.Equal(t, 1, stf.Stats.Requests)
 	require.Equal(t, 1, stf.Stats.Success)
 }
@@ -223,69 +223,69 @@ func TestPoolPrefersRunningQueriesOverNewOnes(t *testing.T) {
 	d := tiny.NewNode(0b00100000) // 32
 
 	// Add the first query
-	queryID1 := coordt.QueryID("1")
+	activityID1 := coordt.ActivityID("1")
 	state := p.Advance(ctx, now, &EventPoolAddFindCloserQuery[tiny.Key, tiny.Node]{
-		QueryID: queryID1,
-		Target:  target,
-		Seed:    []tiny.Node{a, b, c, d},
+		ActivityID: activityID1,
+		Target:     target,
+		Seed:       []tiny.Node{a, b, c, d},
 	})
 	require.IsType(t, &StatePoolFindCloser[tiny.Key, tiny.Node]{}, state)
 
 	// the first query should attempt to contact the node it was given
 	st := state.(*StatePoolFindCloser[tiny.Key, tiny.Node])
-	require.Equal(t, queryID1, st.QueryID)
+	require.Equal(t, activityID1, st.ActivityID)
 	require.Equal(t, a, st.NodeID)
 
 	// Add the second query
-	queryID2 := coordt.QueryID("2")
+	activityID2 := coordt.ActivityID("2")
 	state = p.Advance(ctx, now, &EventPoolAddFindCloserQuery[tiny.Key, tiny.Node]{
-		QueryID: queryID2,
-		Target:  target,
-		Seed:    []tiny.Node{a, b, c, d},
+		ActivityID: activityID2,
+		Target:     target,
+		Seed:       []tiny.Node{a, b, c, d},
 	})
 
 	// the first query should continue its operation in preference to starting the new query
 	require.IsType(t, &StatePoolFindCloser[tiny.Key, tiny.Node]{}, state)
 	st = state.(*StatePoolFindCloser[tiny.Key, tiny.Node])
-	require.Equal(t, queryID1, st.QueryID)
+	require.Equal(t, activityID1, st.ActivityID)
 	require.Equal(t, b, st.NodeID)
 
 	// advance the pool again, the first query should continue its operation in preference to starting the new query
 	state = p.Advance(ctx, now, &EventPoolPoll{})
 	require.IsType(t, &StatePoolFindCloser[tiny.Key, tiny.Node]{}, state)
 	st = state.(*StatePoolFindCloser[tiny.Key, tiny.Node])
-	require.Equal(t, queryID1, st.QueryID)
+	require.Equal(t, activityID1, st.ActivityID)
 	require.Equal(t, c, st.NodeID)
 
 	// advance the pool again, the first query is at capacity so the second query can start
 	state = p.Advance(ctx, now, &EventPoolPoll{})
 	require.IsType(t, &StatePoolFindCloser[tiny.Key, tiny.Node]{}, state)
 	st = state.(*StatePoolFindCloser[tiny.Key, tiny.Node])
-	require.Equal(t, queryID2, st.QueryID)
+	require.Equal(t, activityID2, st.ActivityID)
 	require.Equal(t, a, st.NodeID)
 
 	// notify first query that node was contacted successfully, but no closer nodes
 	state = p.Advance(ctx, now, &EventPoolNodeResponse[tiny.Key, tiny.Node]{
-		QueryID: queryID1,
-		NodeID:  a,
+		ActivityID: activityID1,
+		NodeID:     a,
 	})
 
 	// first query starts a new message request
 	require.IsType(t, &StatePoolFindCloser[tiny.Key, tiny.Node]{}, state)
 	st = state.(*StatePoolFindCloser[tiny.Key, tiny.Node])
-	require.Equal(t, queryID1, st.QueryID)
+	require.Equal(t, activityID1, st.ActivityID)
 	require.Equal(t, d, st.NodeID)
 
 	// notify first query that next node was contacted successfully, but no closer nodes
 	state = p.Advance(ctx, now, &EventPoolNodeResponse[tiny.Key, tiny.Node]{
-		QueryID: queryID1,
-		NodeID:  b,
+		ActivityID: activityID1,
+		NodeID:     b,
 	})
 
 	// first query is out of nodes to try so second query can proceed
 	require.IsType(t, &StatePoolFindCloser[tiny.Key, tiny.Node]{}, state)
 	st = state.(*StatePoolFindCloser[tiny.Key, tiny.Node])
-	require.Equal(t, queryID2, st.QueryID)
+	require.Equal(t, activityID2, st.ActivityID)
 	require.Equal(t, b, st.NodeID)
 }
 
@@ -304,39 +304,39 @@ func TestPoolRespectsConcurrency(t *testing.T) {
 	a := tiny.NewNode(0b00000100) // 4
 
 	// Add the first query
-	queryID1 := coordt.QueryID("1")
+	activityID1 := coordt.ActivityID("1")
 	state := p.Advance(ctx, now, &EventPoolAddFindCloserQuery[tiny.Key, tiny.Node]{
-		QueryID: queryID1,
-		Target:  target,
-		Seed:    []tiny.Node{a},
+		ActivityID: activityID1,
+		Target:     target,
+		Seed:       []tiny.Node{a},
 	})
 	require.IsType(t, &StatePoolFindCloser[tiny.Key, tiny.Node]{}, state)
 
 	// the first query should attempt to contact the node it was given
 	st := state.(*StatePoolFindCloser[tiny.Key, tiny.Node])
-	require.Equal(t, queryID1, st.QueryID)
+	require.Equal(t, activityID1, st.ActivityID)
 	require.Equal(t, a, st.NodeID)
 
 	// Add the second query
-	queryID2 := coordt.QueryID("2")
+	activityID2 := coordt.ActivityID("2")
 	state = p.Advance(ctx, now, &EventPoolAddFindCloserQuery[tiny.Key, tiny.Node]{
-		QueryID: queryID2,
-		Target:  target,
-		Seed:    []tiny.Node{a},
+		ActivityID: activityID2,
+		Target:     target,
+		Seed:       []tiny.Node{a},
 	})
 
 	// the second query should start since the first query has a request in flight
 	require.IsType(t, &StatePoolFindCloser[tiny.Key, tiny.Node]{}, state)
 	st = state.(*StatePoolFindCloser[tiny.Key, tiny.Node])
-	require.Equal(t, queryID2, st.QueryID)
+	require.Equal(t, activityID2, st.ActivityID)
 	require.Equal(t, a, st.NodeID)
 
 	// Add a third query
-	queryID3 := coordt.QueryID("3")
+	activityID3 := coordt.ActivityID("3")
 	state = p.Advance(ctx, now, &EventPoolAddFindCloserQuery[tiny.Key, tiny.Node]{
-		QueryID: queryID3,
-		Target:  target,
-		Seed:    []tiny.Node{a},
+		ActivityID: activityID3,
+		Target:     target,
+		Seed:       []tiny.Node{a},
 	})
 
 	// the third query should wait since the pool has reached maximum concurrency
@@ -344,20 +344,20 @@ func TestPoolRespectsConcurrency(t *testing.T) {
 
 	// notify first query that next node was contacted successfully, but no closer nodes
 	state = p.Advance(ctx, now, &EventPoolNodeResponse[tiny.Key, tiny.Node]{
-		QueryID: queryID1,
-		NodeID:  a,
+		ActivityID: activityID1,
+		NodeID:     a,
 	})
 
 	// first query is out of nodes so it has finished
 	require.IsType(t, &StatePoolQueryFinished[tiny.Key, tiny.Node]{}, state)
 	stf := state.(*StatePoolQueryFinished[tiny.Key, tiny.Node])
-	require.Equal(t, queryID1, stf.QueryID)
+	require.Equal(t, activityID1, stf.ActivityID)
 
 	// advancing pool again allows query 3 to start
 	state = p.Advance(ctx, now, &EventPoolPoll{})
 	require.IsType(t, &StatePoolFindCloser[tiny.Key, tiny.Node]{}, state)
 	st = state.(*StatePoolFindCloser[tiny.Key, tiny.Node])
-	require.Equal(t, queryID3, st.QueryID)
+	require.Equal(t, activityID3, st.ActivityID)
 	require.Equal(t, a, st.NodeID)
 }
 
@@ -389,12 +389,12 @@ func TestPoolQueryTimeout(t *testing.T) {
 			target := tiny.Key(0b00000001)
 			a := tiny.NewNode(0b00000100) // 4
 
-			queryID := coordt.QueryID("test")
+			activityID := coordt.ActivityID("test")
 
 			state := p.Advance(ctx, now, &EventPoolAddFindCloserQuery[tiny.Key, tiny.Node]{
-				QueryID: queryID,
-				Target:  target,
-				Seed:    []tiny.Node{a},
+				ActivityID: activityID,
+				Target:     target,
+				Seed:       []tiny.Node{a},
 			})
 			require.IsType(t, &StatePoolFindCloser[tiny.Key, tiny.Node]{}, state)
 
@@ -408,7 +408,7 @@ func TestPoolQueryTimeout(t *testing.T) {
 			state = p.Advance(ctx, now, &EventPoolPoll{})
 			require.IsType(t, &StatePoolQueryTimeout{}, state)
 			stt := state.(*StatePoolQueryTimeout)
-			require.Equal(t, queryID, stt.QueryID)
+			require.Equal(t, activityID, stt.ActivityID)
 
 			// the timed out query is no longer held by the pool
 			state = p.Advance(ctx, now, &EventPoolPoll{})
@@ -444,9 +444,9 @@ func TestPoolReportsNextDue(t *testing.T) {
 
 	// the first query dispatches a request whose deadline falls before the query's own
 	state = p.Advance(ctx, now, &EventPoolAddFindCloserQuery[tiny.Key, tiny.Node]{
-		QueryID: coordt.QueryID("first"),
-		Target:  target,
-		Seed:    []tiny.Node{a},
+		ActivityID: coordt.ActivityID("first"),
+		Target:     target,
+		Seed:       []tiny.Node{a},
 	})
 	require.IsType(t, &StatePoolFindCloser[tiny.Key, tiny.Node]{}, state)
 
@@ -458,9 +458,9 @@ func TestPoolReportsNextDue(t *testing.T) {
 	// reports the first query's
 	now = epoch.Add(30 * time.Second)
 	state = p.Advance(ctx, now, &EventPoolAddFindCloserQuery[tiny.Key, tiny.Node]{
-		QueryID: coordt.QueryID("second"),
-		Target:  target,
-		Seed:    []tiny.Node{b},
+		ActivityID: coordt.ActivityID("second"),
+		Target:     target,
+		Seed:       []tiny.Node{b},
 	})
 	require.IsType(t, &StatePoolFindCloser[tiny.Key, tiny.Node]{}, state)
 
@@ -472,7 +472,7 @@ func TestPoolReportsNextDue(t *testing.T) {
 	// it learned about, dated from now
 	now = epoch.Add(45 * time.Second)
 	state = p.Advance(ctx, now, &EventPoolNodeResponse[tiny.Key, tiny.Node]{
-		QueryID:     coordt.QueryID("first"),
+		ActivityID:  coordt.ActivityID("first"),
 		NodeID:      a,
 		CloserNodes: []tiny.Node{c},
 	})

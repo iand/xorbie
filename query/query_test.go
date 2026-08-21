@@ -66,10 +66,10 @@ func TestQueryMessagesNode(t *testing.T) {
 
 	cfg := DefaultQueryConfig()
 
-	queryID := coordt.QueryID("test")
+	activityID := coordt.ActivityID("test")
 
 	self := tiny.NewNode(0)
-	qry, err := NewFindCloserQuery[tiny.Key, tiny.Node, tiny.Message](self, queryID, target, iter, knownNodes, cfg)
+	qry, err := NewFindCloserQuery[tiny.Key, tiny.Node, tiny.Message](self, activityID, target, iter, knownNodes, cfg)
 	require.NoError(t, err)
 
 	// first thing the new query should do is request to send a message to the node
@@ -78,7 +78,7 @@ func TestQueryMessagesNode(t *testing.T) {
 
 	// check that we are messaging the correct node with the right message
 	st := state.(*StateQueryFindCloser[tiny.Key, tiny.Node])
-	require.Equal(t, queryID, st.QueryID)
+	require.Equal(t, activityID, st.ActivityID)
 	require.Equal(t, a, st.NodeID)
 	require.True(t, key.Equal(target, st.Target))
 	require.Equal(t, now, st.Stats.Start)
@@ -114,10 +114,10 @@ func TestQueryFindCloserNearest(t *testing.T) {
 
 	cfg := DefaultQueryConfig()
 
-	queryID := coordt.QueryID("test")
+	activityID := coordt.ActivityID("test")
 
 	self := tiny.NewNode(0)
-	qry, err := NewFindCloserQuery[tiny.Key, tiny.Node, tiny.Message](self, queryID, target, iter, knownNodes, cfg)
+	qry, err := NewFindCloserQuery[tiny.Key, tiny.Node, tiny.Message](self, activityID, target, iter, knownNodes, cfg)
 	require.NoError(t, err)
 
 	// first thing the new query should do is message the nearest node
@@ -144,10 +144,10 @@ func TestQueryCancelFinishesQuery(t *testing.T) {
 
 	cfg := DefaultQueryConfig()
 
-	queryID := coordt.QueryID("test")
+	activityID := coordt.ActivityID("test")
 
 	self := tiny.NewNode(0)
-	qry, err := NewFindCloserQuery[tiny.Key, tiny.Node, tiny.Message](self, queryID, target, iter, knownNodes, cfg)
+	qry, err := NewFindCloserQuery[tiny.Key, tiny.Node, tiny.Message](self, activityID, target, iter, knownNodes, cfg)
 	require.NoError(t, err)
 
 	// first thing the new query should do is request to send a message to the node
@@ -186,10 +186,10 @@ func TestQueryNoClosest(t *testing.T) {
 	now := epoch
 	cfg := DefaultQueryConfig()
 
-	queryID := coordt.QueryID("test")
+	activityID := coordt.ActivityID("test")
 
 	self := tiny.NewNode(0)
-	qry, err := NewFindCloserQuery[tiny.Key, tiny.Node, tiny.Message](self, queryID, target, iter, knownNodes, cfg)
+	qry, err := NewFindCloserQuery[tiny.Key, tiny.Node, tiny.Message](self, activityID, target, iter, knownNodes, cfg)
 	require.NoError(t, err)
 
 	// query is finished because there were no nodes to contat
@@ -229,10 +229,10 @@ func TestQueryWaitsAtCapacity(t *testing.T) {
 	cfg := DefaultQueryConfig()
 	cfg.Concurrency = 2
 
-	queryID := coordt.QueryID("test")
+	activityID := coordt.ActivityID("test")
 
 	self := tiny.NewNode(0)
-	qry, err := NewFindCloserQuery[tiny.Key, tiny.Node, tiny.Message](self, queryID, target, iter, knownNodes, cfg)
+	qry, err := NewFindCloserQuery[tiny.Key, tiny.Node, tiny.Message](self, activityID, target, iter, knownNodes, cfg)
 	require.NoError(t, err)
 
 	// first thing the new query should do is request to send a message to the node
@@ -282,10 +282,10 @@ func TestQueryTimedOutNodeMakesCapacity(t *testing.T) {
 	cfg.RequestTimeout = 3 * time.Minute
 	cfg.Concurrency = len(knownNodes) - 1 // one less than the number of initial nodes
 
-	queryID := coordt.QueryID("test")
+	activityID := coordt.ActivityID("test")
 
 	self := tiny.NewNode(0)
-	qry, err := NewFindCloserQuery[tiny.Key, tiny.Node, tiny.Message](self, queryID, target, iter, knownNodes, cfg)
+	qry, err := NewFindCloserQuery[tiny.Key, tiny.Node, tiny.Message](self, activityID, target, iter, knownNodes, cfg)
 	require.NoError(t, err)
 
 	// first thing the new query should do is contact the nearest node
@@ -386,10 +386,10 @@ func TestQueryFindCloserResponseMakesCapacity(t *testing.T) {
 	cfg := DefaultQueryConfig()
 	cfg.Concurrency = len(knownNodes) - 1 // one less than the number of initial nodes
 
-	queryID := coordt.QueryID("test")
+	activityID := coordt.ActivityID("test")
 
 	self := tiny.NewNode(0)
-	qry, err := NewFindCloserQuery[tiny.Key, tiny.Node, tiny.Message](self, queryID, target, iter, knownNodes, cfg)
+	qry, err := NewFindCloserQuery[tiny.Key, tiny.Node, tiny.Message](self, activityID, target, iter, knownNodes, cfg)
 	require.NoError(t, err)
 
 	// first thing the new query should do is contact the nearest node
@@ -469,10 +469,10 @@ func TestQueryCloserNodesAreAddedToIteration(t *testing.T) {
 	cfg := DefaultQueryConfig()
 	cfg.Concurrency = 2
 
-	queryID := coordt.QueryID("test")
+	activityID := coordt.ActivityID("test")
 
 	self := tiny.NewNode(0)
-	qry, err := NewFindCloserQuery[tiny.Key, tiny.Node, tiny.Message](self, queryID, target, iter, knownNodes, cfg)
+	qry, err := NewFindCloserQuery[tiny.Key, tiny.Node, tiny.Message](self, activityID, target, iter, knownNodes, cfg)
 	require.NoError(t, err)
 
 	// first thing the new query should do is contact the first node
@@ -524,10 +524,10 @@ func TestQueryCloserNodesIgnoresDuplicates(t *testing.T) {
 	cfg := DefaultQueryConfig()
 	cfg.Concurrency = 2
 
-	queryID := coordt.QueryID("test")
+	activityID := coordt.ActivityID("test")
 
 	self := tiny.NewNode(0)
-	qry, err := NewFindCloserQuery[tiny.Key, tiny.Node, tiny.Message](self, queryID, target, iter, knownNodes, cfg)
+	qry, err := NewFindCloserQuery[tiny.Key, tiny.Node, tiny.Message](self, activityID, target, iter, knownNodes, cfg)
 	require.NoError(t, err)
 
 	// first thing the new query should do is contact the first node
@@ -577,10 +577,10 @@ func TestQueryCancelFinishesIteration(t *testing.T) {
 	cfg := DefaultQueryConfig()
 	cfg.Concurrency = 2
 
-	queryID := coordt.QueryID("test")
+	activityID := coordt.ActivityID("test")
 
 	self := tiny.NewNode(0)
-	qry, err := NewFindCloserQuery[tiny.Key, tiny.Node, tiny.Message](self, queryID, target, iter, knownNodes, cfg)
+	qry, err := NewFindCloserQuery[tiny.Key, tiny.Node, tiny.Message](self, activityID, target, iter, knownNodes, cfg)
 	require.NoError(t, err)
 
 	// first thing the new query should do is contact the first node
@@ -614,10 +614,10 @@ func TestQueryFinishedIgnoresLaterEvents(t *testing.T) {
 	cfg := DefaultQueryConfig()
 	cfg.Concurrency = 2
 
-	queryID := coordt.QueryID("test")
+	activityID := coordt.ActivityID("test")
 
 	self := tiny.NewNode(0)
-	qry, err := NewFindCloserQuery[tiny.Key, tiny.Node, tiny.Message](self, queryID, target, iter, knownNodes, cfg)
+	qry, err := NewFindCloserQuery[tiny.Key, tiny.Node, tiny.Message](self, activityID, target, iter, knownNodes, cfg)
 	require.NoError(t, err)
 
 	// first thing the new query should do is contact the first node
@@ -670,10 +670,10 @@ func TestQueryWithCloserIterIgnoresMessagesFromUnknownNodes(t *testing.T) {
 	cfg := DefaultQueryConfig()
 	cfg.Concurrency = 2
 
-	queryID := coordt.QueryID("test")
+	activityID := coordt.ActivityID("test")
 
 	self := tiny.NewNode(0)
-	qry, err := NewFindCloserQuery[tiny.Key, tiny.Node, tiny.Message](self, queryID, target, iter, knownNodes, cfg)
+	qry, err := NewFindCloserQuery[tiny.Key, tiny.Node, tiny.Message](self, activityID, target, iter, knownNodes, cfg)
 	require.NoError(t, err)
 
 	// first thing the new query should do is contact the first node
@@ -721,10 +721,10 @@ func TestQueryWithCloserIterFinishesWhenNumResultsReached(t *testing.T) {
 	cfg.Concurrency = 4
 	cfg.NumResults = 2
 
-	queryID := coordt.QueryID("test")
+	activityID := coordt.ActivityID("test")
 
 	self := tiny.NewNode(0)
-	qry, err := NewFindCloserQuery[tiny.Key, tiny.Node, tiny.Message](self, queryID, target, iter, knownNodes, cfg)
+	qry, err := NewFindCloserQuery[tiny.Key, tiny.Node, tiny.Message](self, activityID, target, iter, knownNodes, cfg)
 	require.NoError(t, err)
 
 	// contact first node
@@ -780,10 +780,10 @@ func TestQueryWithCloserIterContinuesUntilNumResultsReached(t *testing.T) {
 	cfg.Concurrency = 4
 	cfg.NumResults = 2
 
-	queryID := coordt.QueryID("test")
+	activityID := coordt.ActivityID("test")
 
 	self := tiny.NewNode(0)
-	qry, err := NewFindCloserQuery[tiny.Key, tiny.Node, tiny.Message](self, queryID, target, iter, knownNodes, cfg)
+	qry, err := NewFindCloserQuery[tiny.Key, tiny.Node, tiny.Message](self, activityID, target, iter, knownNodes, cfg)
 	require.NoError(t, err)
 
 	// contact first node
@@ -851,10 +851,10 @@ func TestQueryNotContactedMakesCapacity(t *testing.T) {
 	cfg := DefaultQueryConfig()
 	cfg.Concurrency = len(knownNodes) - 1 // one less than the number of initial nodes
 
-	queryID := coordt.QueryID("test")
+	activityID := coordt.ActivityID("test")
 
 	self := tiny.NewNode(0)
-	qry, err := NewFindCloserQuery[tiny.Key, tiny.Node, tiny.Message](self, queryID, target, iter, knownNodes, cfg)
+	qry, err := NewFindCloserQuery[tiny.Key, tiny.Node, tiny.Message](self, activityID, target, iter, knownNodes, cfg)
 	require.NoError(t, err)
 
 	// first thing the new query should do is contact the nearest node
@@ -908,10 +908,10 @@ func TestFindCloserQueryAllNotContactedFinishes(t *testing.T) {
 	cfg := DefaultQueryConfig()
 	cfg.Concurrency = len(knownNodes) // allow all to be contacted at once
 
-	queryID := coordt.QueryID("test")
+	activityID := coordt.ActivityID("test")
 
 	self := tiny.NewNode(0)
-	qry, err := NewFindCloserQuery[tiny.Key, tiny.Node, tiny.Message](self, queryID, target, iter, knownNodes, cfg)
+	qry, err := NewFindCloserQuery[tiny.Key, tiny.Node, tiny.Message](self, activityID, target, iter, knownNodes, cfg)
 	require.NoError(t, err)
 
 	// first thing the new query should do is contact the nearest node
@@ -966,10 +966,10 @@ func TestQueryAllContactedFinishes(t *testing.T) {
 	cfg.Concurrency = len(knownNodes)    // allow all to be contacted at once
 	cfg.NumResults = len(knownNodes) + 1 // one more than the size of the network
 
-	queryID := coordt.QueryID("test")
+	activityID := coordt.ActivityID("test")
 
 	self := tiny.NewNode(0)
-	qry, err := NewFindCloserQuery[tiny.Key, tiny.Node, tiny.Message](self, queryID, target, iter, knownNodes, cfg)
+	qry, err := NewFindCloserQuery[tiny.Key, tiny.Node, tiny.Message](self, activityID, target, iter, knownNodes, cfg)
 	require.NoError(t, err)
 
 	// first thing the new query should do is contact the nearest node
@@ -1024,10 +1024,10 @@ func TestQueryNeverMessagesSelf(t *testing.T) {
 	cfg := DefaultQueryConfig()
 	cfg.Concurrency = 2
 
-	queryID := coordt.QueryID("test")
+	activityID := coordt.ActivityID("test")
 
 	self := a
-	qry, err := NewFindCloserQuery[tiny.Key, tiny.Node, tiny.Message](self, queryID, target, iter, knownNodes, cfg)
+	qry, err := NewFindCloserQuery[tiny.Key, tiny.Node, tiny.Message](self, activityID, target, iter, knownNodes, cfg)
 	require.NoError(t, err)
 
 	// first thing the new query should do is contact the first node
@@ -1073,11 +1073,11 @@ func TestQueryMessagesNearest(t *testing.T) {
 
 	cfg := DefaultQueryConfig()
 
-	queryID := coordt.QueryID("test")
+	activityID := coordt.ActivityID("test")
 
 	self := tiny.NewNode(0)
 	msg := tiny.Message{Content: "msg"}
-	qry, err := NewQuery(self, queryID, target, msg, iter, knownNodes, cfg)
+	qry, err := NewQuery(self, activityID, target, msg, iter, knownNodes, cfg)
 	require.NoError(t, err)
 
 	// first thing the new query should do is message the nearest node
@@ -1113,11 +1113,11 @@ func TestQueryMessageResponseMakesCapacity(t *testing.T) {
 	cfg := DefaultQueryConfig()
 	cfg.Concurrency = len(knownNodes) - 1 // one less than the number of initial nodes
 
-	queryID := coordt.QueryID("test")
+	activityID := coordt.ActivityID("test")
 
 	self := tiny.NewNode(0)
 	msg := tiny.Message{Content: "msg"}
-	qry, err := NewQuery(self, queryID, target, msg, iter, knownNodes, cfg)
+	qry, err := NewQuery(self, activityID, target, msg, iter, knownNodes, cfg)
 	require.NoError(t, err)
 
 	// first thing the new query should do is contact the nearest node
@@ -1187,11 +1187,11 @@ func TestQueryAllNotContactedFinishes(t *testing.T) {
 	cfg := DefaultQueryConfig()
 	cfg.Concurrency = len(knownNodes) // allow all to be contacted at once
 
-	queryID := coordt.QueryID("test")
+	activityID := coordt.ActivityID("test")
 
 	self := tiny.NewNode(0)
 	msg := tiny.Message{Content: "msg"}
-	qry, err := NewQuery(self, queryID, target, msg, iter, knownNodes, cfg)
+	qry, err := NewQuery(self, activityID, target, msg, iter, knownNodes, cfg)
 	require.NoError(t, err)
 
 	// first thing the new query should do is contact the nearest node
@@ -1249,10 +1249,10 @@ func TestFindCloserQueryIncludesPartialClosestNodesWhenCancelled(t *testing.T) {
 	cfg.Concurrency = 4
 	cfg.NumResults = 4
 
-	queryID := coordt.QueryID("test")
+	activityID := coordt.ActivityID("test")
 
 	self := tiny.NewNode(0)
-	qry, err := NewFindCloserQuery[tiny.Key, tiny.Node, tiny.Message](self, queryID, target, iter, knownNodes, cfg)
+	qry, err := NewFindCloserQuery[tiny.Key, tiny.Node, tiny.Message](self, activityID, target, iter, knownNodes, cfg)
 	require.NoError(t, err)
 
 	// contact first node
@@ -1306,7 +1306,7 @@ func TestQueryReportsNextDue(t *testing.T) {
 	cfg.Concurrency = 1
 
 	self := tiny.NewNode(0)
-	qry, err := NewFindCloserQuery[tiny.Key, tiny.Node, tiny.Message](self, coordt.QueryID("test"), target, iter, []tiny.Node{a, b}, cfg)
+	qry, err := NewFindCloserQuery[tiny.Key, tiny.Node, tiny.Message](self, coordt.ActivityID("test"), target, iter, []tiny.Node{a, b}, cfg)
 	require.NoError(t, err)
 
 	// contacting the first node sets its request deadline
@@ -1347,7 +1347,7 @@ func TestQueryReportsEarliestNodeDeadline(t *testing.T) {
 	cfg.Concurrency = 2
 
 	self := tiny.NewNode(0)
-	qry, err := NewFindCloserQuery[tiny.Key, tiny.Node, tiny.Message](self, coordt.QueryID("test"), target, iter, []tiny.Node{a, b}, cfg)
+	qry, err := NewFindCloserQuery[tiny.Key, tiny.Node, tiny.Message](self, coordt.ActivityID("test"), target, iter, []tiny.Node{a, b}, cfg)
 	require.NoError(t, err)
 
 	// contact the first node, then the second a minute later, so the two have
@@ -1376,7 +1376,7 @@ func TestQueryReportsNoNextDueWhenNothingOutstanding(t *testing.T) {
 	cfg := DefaultQueryConfig()
 
 	self := tiny.NewNode(0)
-	qry, err := NewFindCloserQuery[tiny.Key, tiny.Node, tiny.Message](self, coordt.QueryID("test"), target, iter, []tiny.Node{}, cfg)
+	qry, err := NewFindCloserQuery[tiny.Key, tiny.Node, tiny.Message](self, coordt.ActivityID("test"), target, iter, []tiny.Node{}, cfg)
 	require.NoError(t, err)
 
 	// a query with no nodes to contact finishes rather than waiting, so it never
@@ -1406,7 +1406,7 @@ func TestQueryReportsNextDueAcrossIterationOrder(t *testing.T) {
 	cfg.Concurrency = 2
 
 	self := tiny.NewNode(0)
-	qry, err := NewFindCloserQuery[tiny.Key, tiny.Node, tiny.Message](self, coordt.QueryID("test"), target, iter, []tiny.Node{mid, far}, cfg)
+	qry, err := NewFindCloserQuery[tiny.Key, tiny.Node, tiny.Message](self, coordt.ActivityID("test"), target, iter, []tiny.Node{mid, far}, cfg)
 	require.NoError(t, err)
 
 	// contact both seeds, so each carries a deadline of now + RequestTimeout
@@ -1452,7 +1452,7 @@ func TestQueryLateResponseCountsOneOutcome(t *testing.T) {
 	cfg.RequestTimeout = 3 * time.Minute
 
 	self := tiny.NewNode(0)
-	qry, err := NewFindCloserQuery[tiny.Key, tiny.Node, tiny.Message](self, coordt.QueryID("test"), target, iter, []tiny.Node{a}, cfg)
+	qry, err := NewFindCloserQuery[tiny.Key, tiny.Node, tiny.Message](self, coordt.ActivityID("test"), target, iter, []tiny.Node{a}, cfg)
 	require.NoError(t, err)
 
 	// the only known node is contacted, which is the one request this query makes
@@ -1489,7 +1489,7 @@ func TestQueryLateResponseStaysCountedAsFailure(t *testing.T) {
 
 	// a second node keeps the query running after the first has timed out
 	self := tiny.NewNode(0)
-	qry, err := NewFindCloserQuery[tiny.Key, tiny.Node, tiny.Message](self, coordt.QueryID("test"), target, iter, []tiny.Node{a, b}, cfg)
+	qry, err := NewFindCloserQuery[tiny.Key, tiny.Node, tiny.Message](self, coordt.ActivityID("test"), target, iter, []tiny.Node{a, b}, cfg)
 	require.NoError(t, err)
 
 	state := qry.Advance(ctx, now, &EventQueryPoll{})
@@ -1509,7 +1509,7 @@ func TestQueryLateResponseStaysCountedAsFailure(t *testing.T) {
 	// a query that has finished no longer accounts for anything, so this is checked on a
 	// query still running: repeat with only the first node timing out
 	iter2 := NewClosestNodesIter[tiny.Key, tiny.Node](target)
-	qry2, err := NewFindCloserQuery[tiny.Key, tiny.Node, tiny.Message](self, coordt.QueryID("test"), target, iter2, []tiny.Node{a, b}, cfg)
+	qry2, err := NewFindCloserQuery[tiny.Key, tiny.Node, tiny.Message](self, coordt.ActivityID("test"), target, iter2, []tiny.Node{a, b}, cfg)
 	require.NoError(t, err)
 
 	now = epoch
@@ -1557,7 +1557,7 @@ func TestQueryLateResponseMarksNodeGood(t *testing.T) {
 	cfg.RequestTimeout = 3 * time.Minute
 
 	self := tiny.NewNode(0)
-	qry, err := NewFindCloserQuery[tiny.Key, tiny.Node, tiny.Message](self, coordt.QueryID("test"), target, iter, []tiny.Node{a}, cfg)
+	qry, err := NewFindCloserQuery[tiny.Key, tiny.Node, tiny.Message](self, coordt.ActivityID("test"), target, iter, []tiny.Node{a}, cfg)
 	require.NoError(t, err)
 
 	state := qry.Advance(ctx, now, &EventQueryPoll{})
@@ -1572,7 +1572,7 @@ func TestQueryLateResponseMarksNodeGood(t *testing.T) {
 	// a query that has finished ignores everything, so the same is checked on one still
 	// running, where a second node holds the query open
 	iter2 := NewClosestNodesIter[tiny.Key, tiny.Node](target)
-	qry2, err := NewFindCloserQuery[tiny.Key, tiny.Node, tiny.Message](self, coordt.QueryID("test"), target, iter2, []tiny.Node{a, b}, cfg)
+	qry2, err := NewFindCloserQuery[tiny.Key, tiny.Node, tiny.Message](self, coordt.ActivityID("test"), target, iter2, []tiny.Node{a, b}, cfg)
 	require.NoError(t, err)
 
 	now = epoch

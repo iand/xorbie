@@ -8,10 +8,12 @@ import (
 	"github.com/ipfs/go-libdht/kad"
 )
 
-// TODO: rename to something like OperationID. This type isn't only used to identify queries but also other operations like publishes.
-type QueryID string
+// ActivityID identifies a strand of work a state machine is carrying out, such as a query, a
+// publish, or a routing probe. It is set on the requests that work sends out and echoed back on
+// their responses so the initiator can match a response to the activity it belongs to.
+type ActivityID string
 
-const InvalidQueryID QueryID = ""
+const InvalidActivityID ActivityID = ""
 
 // StateMachine is a pure state machine: Advance applies an event and returns the resulting
 // state. now is the time the event is being applied at, supplied by the caller so the machine

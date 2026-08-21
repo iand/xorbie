@@ -47,10 +47,10 @@ func TestNetworkBehaviourDropsRequestsBeyondNodeCapacity(t *testing.T) {
 
 	for range 3 {
 		b.Notify(ctx, &EventOutboundGetCloserNodes[tiny.Key, tiny.Node]{
-			QueryID: "test",
-			To:      nodes[1].NodeID,
-			Target:  nodes[1].NodeID.Key(),
-			Notify:  notify,
+			ActivityID: "test",
+			To:         nodes[1].NodeID,
+			Target:     nodes[1].NodeID.Key(),
+			Notify:     notify,
 		})
 	}
 
@@ -104,10 +104,10 @@ func TestNetworkBehaviourEvictsIdleNodeHandlers(t *testing.T) {
 		peers := nodes[1:]
 		for _, n := range peers {
 			b.Notify(ctx, &EventOutboundGetCloserNodes[tiny.Key, tiny.Node]{
-				QueryID: "test",
-				To:      n.NodeID,
-				Target:  n.NodeID.Key(),
-				Notify:  notify,
+				ActivityID: "test",
+				To:         n.NodeID,
+				Target:     n.NodeID.Key(),
+				Notify:     notify,
 			})
 		}
 
@@ -167,10 +167,10 @@ func TestNetworkBehaviourKeepsBusyNodeHandlers(t *testing.T) {
 		notify := NotifyFunc[BehaviourEvent](func(ctx context.Context, ev BehaviourEvent) {})
 
 		b.Notify(ctx, &EventOutboundGetCloserNodes[tiny.Key, tiny.Node]{
-			QueryID: "test",
-			To:      nodes[1].NodeID,
-			Target:  nodes[1].NodeID.Key(),
-			Notify:  notify,
+			ActivityID: "test",
+			To:         nodes[1].NodeID,
+			Target:     nodes[1].NodeID.Key(),
+			Notify:     notify,
 		})
 
 		synctest.Wait()
@@ -207,10 +207,10 @@ func TestEvictIdleRefusesBusyHandler(t *testing.T) {
 		notify := NotifyFunc[BehaviourEvent](func(ctx context.Context, ev BehaviourEvent) {})
 
 		b.Notify(ctx, &EventOutboundGetCloserNodes[tiny.Key, tiny.Node]{
-			QueryID: "test",
-			To:      nodes[1].NodeID,
-			Target:  nodes[1].NodeID.Key(),
-			Notify:  notify,
+			ActivityID: "test",
+			To:         nodes[1].NodeID,
+			Target:     nodes[1].NodeID.Key(),
+			Notify:     notify,
 		})
 		synctest.Wait()
 
@@ -253,10 +253,10 @@ func TestNetworkBehaviourReportsInFlightRequests(t *testing.T) {
 	peers := nodes[1:]
 	for _, n := range peers {
 		b.Notify(ctx, &EventOutboundGetCloserNodes[tiny.Key, tiny.Node]{
-			QueryID: "test",
-			To:      n.NodeID,
-			Target:  n.NodeID.Key(),
-			Notify:  notify,
+			ActivityID: "test",
+			To:         n.NodeID,
+			Target:     n.NodeID.Key(),
+			Notify:     notify,
 		})
 	}
 

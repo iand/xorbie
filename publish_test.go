@@ -45,11 +45,11 @@ func TestPublishBehaviourContactsAllSeeds(t *testing.T) {
 	msg := tiny.Message{Content: "store"}
 
 	b.Notify(ctx, &EventStartStaticPublish[tiny.Key, tiny.Node, tiny.Message]{
-		QueryID: "test",
-		Target:  msg.Target(),
-		Message: msg,
-		Nodes:   seeds,
-		Notify:  NewPublishWaiter[tiny.Key, tiny.Node, tiny.Message](0),
+		ActivityID: "test",
+		Target:     msg.Target(),
+		Message:    msg,
+		Nodes:      seeds,
+		Notify:     NewPublishWaiter[tiny.Key, tiny.Node, tiny.Message](0),
 	})
 
 	evs := PerformWhileReady(t, ctx, b)
@@ -85,19 +85,19 @@ func TestPublishBehaviourReportsDroppedPublishStart(t *testing.T) {
 	require.NoError(t, err)
 
 	// take the queue's only place
-	b.Notify(ctx, &EventStopQuery{QueryID: "filler"})
+	b.Notify(ctx, &EventStopQuery{ActivityID: "filler"})
 
 	waiter := NewPublishWaiter[tiny.Key, tiny.Node, tiny.Message](1)
 	b.Notify(ctx, &EventStartFollowUpPublish[tiny.Key, tiny.Node, tiny.Message]{
-		QueryID: "dropped",
-		Target:  nodes[1].NodeID.Key(),
-		Notify:  waiter,
+		ActivityID: "dropped",
+		Target:     nodes[1].NodeID.Key(),
+		Notify:     waiter,
 	})
 
 	select {
 	case wev := <-waiter.Finished():
 		require.ErrorIs(t, wev.Event.Err, ErrEventDropped)
-		require.Equal(t, coordt.QueryID("dropped"), wev.Event.QueryID)
+		require.Equal(t, coordt.ActivityID("dropped"), wev.Event.ActivityID)
 	default:
 		t.Fatal("caller was not told the publish had been dropped")
 	}
@@ -155,9 +155,9 @@ func TestPublishBehaviourStartsRegionKeys(t *testing.T) {
 
 	// the empty prefix names the whole region, so every stored key falls inside it
 	b.Notify(ctx, &EventStartRegionPublish[tiny.Key, tiny.Node]{
-		QueryID: "region-1",
-		Prefix:  "",
-		Nodes:   region,
+		ActivityID: "region-1",
+		Prefix:     "",
+		Nodes:      region,
 	})
 
 	evs := PerformWhileReady(t, ctx, b)
@@ -201,9 +201,9 @@ func TestPublishBehaviourRegionCapAndCompletion(t *testing.T) {
 	b := newRegionPublishBehaviour(t, self, ks, 1, 1)
 
 	b.Notify(ctx, &EventStartRegionPublish[tiny.Key, tiny.Node]{
-		QueryID: "region-1",
-		Prefix:  "",
-		Nodes:   region,
+		ActivityID: "region-1",
+		Prefix:     "",
+		Nodes:      region,
 	})
 
 	// with a cap of one only the first key's store goes out
@@ -213,10 +213,10 @@ func TestPublishBehaviourRegionCapAndCompletion(t *testing.T) {
 
 	// reporting the store succeeded finishes that key's publish and frees the slot
 	b.Notify(ctx, &EventSendMessageSuccess[tiny.Key, tiny.Node, tiny.Message]{
-		QueryID:  first[0].QueryID,
-		To:       first[0].To,
-		Request:  first[0].Message,
-		Response: first[0].Message,
+		ActivityID: first[0].ActivityID,
+		To:         first[0].To,
+		Request:    first[0].Message,
+		Response:   first[0].Message,
 	})
 
 	second := sendMessages(PerformWhileReady(t, ctx, b))
@@ -225,10 +225,10 @@ func TestPublishBehaviourRegionCapAndCompletion(t *testing.T) {
 
 	// completing the second key finishes the region
 	b.Notify(ctx, &EventSendMessageSuccess[tiny.Key, tiny.Node, tiny.Message]{
-		QueryID:  second[0].QueryID,
-		To:       second[0].To,
-		Request:  second[0].Message,
-		Response: second[0].Message,
+		ActivityID: second[0].ActivityID,
+		To:         second[0].To,
+		Request:    second[0].Message,
+		Response:   second[0].Message,
 	})
 	PerformWhileReady(t, ctx, b)
 
@@ -251,9 +251,9 @@ func TestPublishBehaviourRegionDisabledWithoutKeystore(t *testing.T) {
 	require.NoError(t, err)
 
 	b.Notify(ctx, &EventStartRegionPublish[tiny.Key, tiny.Node]{
-		QueryID: "region-1",
-		Prefix:  "",
-		Nodes:   []tiny.Node{nodes[1].NodeID},
+		ActivityID: "region-1",
+		Prefix:     "",
+		Nodes:      []tiny.Node{nodes[1].NodeID},
 	})
 
 	evs := PerformWhileReady(t, ctx, b)

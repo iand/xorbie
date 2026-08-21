@@ -127,7 +127,7 @@ func TestSurveyAutoStartsDueRegion(t *testing.T) {
 
 	fc, ok := state.(*StateSurveyFindCloser[tiny.Key, tiny.Node])
 	require.True(t, ok)
-	require.Equal(t, SurveyQueryID, fc.QueryID)
+	require.Equal(t, SurveyActivityID, fc.ActivityID)
 	require.Equal(t, tiny.Key(0), fc.Target) // target for region "00"
 	require.Equal(t, n, fc.NodeID)
 }

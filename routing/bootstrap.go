@@ -15,8 +15,8 @@ import (
 	"github.com/iand/xorbie/query"
 )
 
-// BootstrapQueryID is the id for the query operated by the bootstrap process
-const BootstrapQueryID = coordt.QueryID("bootstrap")
+// BootstrapActivityID is the id for the activity operated by the bootstrap process
+const BootstrapActivityID = coordt.ActivityID("bootstrap")
 
 // A bootstrapTrigger records what started a bootstrap. It is reported as the trigger
 // attribute on the bootstrap_started counter.
@@ -330,7 +330,7 @@ func (b *Bootstrap[K, N]) startQuery(ctx context.Context, now time.Time, seeds [
 	qryCfg.RequestTimeout = b.cfg.RequestTimeout
 	qryCfg.Timeout = b.cfg.Timeout
 
-	qry, err := query.NewFindCloserQuery[K, N, coordt.NoMessage[K, N]](b.self, BootstrapQueryID, b.self.Key(), iter, seeds, qryCfg)
+	qry, err := query.NewFindCloserQuery[K, N, coordt.NoMessage[K, N]](b.self, BootstrapActivityID, b.self.Key(), iter, seeds, qryCfg)
 	if err != nil {
 		// TODO: don't panic
 		panic(err)
@@ -351,10 +351,10 @@ func (b *Bootstrap[K, N]) advanceQuery(ctx context.Context, now time.Time, qev q
 		b.counterFindSent.Add(ctx, 1)
 		span.SetAttributes(attribute.String("out_state", "StateQueryFindCloser"))
 		return &StateBootstrapFindCloser[K, N]{
-			QueryID: st.QueryID,
-			Stats:   st.Stats,
-			NodeID:  st.NodeID,
-			Target:  st.Target,
+			ActivityID: st.ActivityID,
+			Stats:      st.Stats,
+			NodeID:     st.NodeID,
+			Target:     st.Target,
 		}
 	case *query.StateQueryFinished[K, N]:
 		span.SetAttributes(attribute.String("out_state", "StateBootstrapFinished"))
@@ -407,10 +407,10 @@ type BootstrapState interface {
 
 // StateBootstrapFindCloser indicates that the bootstrap query wants to send a find closer nodes message to a node.
 type StateBootstrapFindCloser[K kad.Key[K], N kad.NodeID[K]] struct {
-	QueryID coordt.QueryID
-	Target  K // the key that the query wants to find closer nodes for
-	NodeID  N // the node to send the message to
-	Stats   query.QueryStats
+	ActivityID coordt.ActivityID
+	Target     K // the key that the query wants to find closer nodes for
+	NodeID     N // the node to send the message to
+	Stats      query.QueryStats
 }
 
 // StateBootstrapIdle indicates that the bootstrap is not running its query.

@@ -37,7 +37,7 @@ type Pool[K kad.Key[K], N kad.NodeID[K], M coordt.Message[K, N]] struct {
 	qp *query.Pool[K, N, M]
 
 	// bcs holds every running publish operation, keyed by its query id
-	bcs map[coordt.QueryID]Publish
+	bcs map[coordt.ActivityID]Publish
 
 	// cfg is a copy of the optional configuration supplied to the Pool
 	cfg PoolConfig
@@ -110,7 +110,7 @@ func NewPool[K kad.Key[K], N kad.NodeID[K], M coordt.Message[K, N]](self N, cfg 
 
 	return &Pool[K, N, M]{
 		qp:  qp,
-		bcs: map[coordt.QueryID]Publish{},
+		bcs: map[coordt.ActivityID]Publish{},
 		cfg: *cfg,
 	}, nil
 }
@@ -181,54 +181,54 @@ func (p *Pool[K, N, M]) handleEvent(ctx context.Context, ev PoolEvent) (sm Publi
 
 	switch ev := ev.(type) {
 	case *EventPoolStartFollowUp[K, N, M]:
-		p.bcs[ev.QueryID] = NewFollowUp(ev.QueryID, p.qp, ev.Message, ev.Seed, p.cfg.Tracer)
+		p.bcs[ev.ActivityID] = NewFollowUp(ev.ActivityID, p.qp, ev.Message, ev.Seed, p.cfg.Tracer)
 
-		return p.bcs[ev.QueryID], &EventPublishStart[K, N]{
+		return p.bcs[ev.ActivityID], &EventPublishStart[K, N]{
 			Target: ev.Target,
 		}
 
 	case *EventPoolStartStatic[K, N, M]:
-		p.bcs[ev.QueryID] = NewStatic(ev.QueryID, ev.Message, ev.Nodes, p.cfg.Tracer)
+		p.bcs[ev.ActivityID] = NewStatic(ev.ActivityID, ev.Message, ev.Nodes, p.cfg.Tracer)
 
-		return p.bcs[ev.QueryID], &EventPublishStart[K, N]{
+		return p.bcs[ev.ActivityID], &EventPublishStart[K, N]{
 			Target: ev.Target,
 		}
 
 	case *EventPoolStartOptimistic[K, N, M]:
-		o, err := NewOptimistic(ev.QueryID, p.qp, ev.Message, ev.Seed, ev.NetworkSize, p.cfg.Optimistic, p.cfg.Tracer)
+		o, err := NewOptimistic(ev.ActivityID, p.qp, ev.Message, ev.Seed, ev.NetworkSize, p.cfg.Optimistic, p.cfg.Tracer)
 		if err != nil {
 			return nil, nil
 		}
-		p.bcs[ev.QueryID] = o
+		p.bcs[ev.ActivityID] = o
 
-		return p.bcs[ev.QueryID], &EventPublishStart[K, N]{
+		return p.bcs[ev.ActivityID], &EventPublishStart[K, N]{
 			Target: ev.Target,
 		}
 
 	case *EventPoolStopPublish:
-		return p.bcs[ev.QueryID], &EventPublishStop{}
+		return p.bcs[ev.ActivityID], &EventPublishStop{}
 
 	case *EventPoolGetCloserNodesSuccess[K, N]:
-		return p.bcs[ev.QueryID], &EventPublishNodeResponse[K, N]{
+		return p.bcs[ev.ActivityID], &EventPublishNodeResponse[K, N]{
 			NodeID:      ev.NodeID,
 			CloserNodes: ev.CloserNodes,
 		}
 
 	case *EventPoolGetCloserNodesFailure[K, N]:
-		return p.bcs[ev.QueryID], &EventPublishNodeFailure[K, N]{
+		return p.bcs[ev.ActivityID], &EventPublishNodeFailure[K, N]{
 			NodeID: ev.NodeID,
 			Error:  ev.Error,
 		}
 
 	case *EventPoolStoreRecordSuccess[K, N, M]:
-		return p.bcs[ev.QueryID], &EventPublishStoreRecordSuccess[K, N, M]{
+		return p.bcs[ev.ActivityID], &EventPublishStoreRecordSuccess[K, N, M]{
 			NodeID:   ev.NodeID,
 			Request:  ev.Request,
 			Response: ev.Response,
 		}
 
 	case *EventPoolStoreRecordFailure[K, N, M]:
-		return p.bcs[ev.QueryID], &EventPublishStoreRecordFailure[K, N, M]{
+		return p.bcs[ev.ActivityID], &EventPublishStoreRecordFailure[K, N, M]{
 			NodeID:  ev.NodeID,
 			Request: ev.Request,
 			Error:   ev.Error,
@@ -255,9 +255,9 @@ func (p *Pool[K, N, M]) advancePublish(ctx context.Context, now time.Time, sm Pu
 	switch st := state.(type) {
 	case *StatePublishFindCloser[K, N]:
 		return &StatePoolFindCloser[K, N]{
-			QueryID: st.QueryID,
-			NodeID:  st.NodeID,
-			Target:  st.Target,
+			ActivityID: st.ActivityID,
+			NodeID:     st.NodeID,
+			Target:     st.Target,
 		}, true
 	case *StatePublishWaiting:
 		// Waiting carries no instruction for the caller, so it does not end the walk.
@@ -265,14 +265,14 @@ func (p *Pool[K, N, M]) advancePublish(ctx context.Context, now time.Time, sm Pu
 		p.recordDue(st.NextDue)
 	case *StatePublishStoreRecord[K, N, M]:
 		return &StatePoolStoreRecord[K, N, M]{
-			QueryID: st.QueryID,
-			NodeID:  st.NodeID,
-			Message: st.Message,
+			ActivityID: st.ActivityID,
+			NodeID:     st.NodeID,
+			Message:    st.Message,
 		}, true
 	case *StatePublishFinished[K, N]:
-		delete(p.bcs, st.QueryID)
+		delete(p.bcs, st.ActivityID)
 		return &StatePoolPublishFinished[K, N]{
-			QueryID:    st.QueryID,
+			ActivityID: st.ActivityID,
 			Contacted:  st.Contacted,
 			Errors:     st.Errors,
 			QueryStats: st.QueryStats,
@@ -291,9 +291,9 @@ type PoolState interface {
 // StatePoolFindCloser indicates that one of the pool's publishes wants the given node
 // queried for nodes closer to the target key.
 type StatePoolFindCloser[K kad.Key[K], N kad.NodeID[K]] struct {
-	QueryID coordt.QueryID // the id of the publish operation that wants to send the message
-	Target  K              // the key that the query wants to find closer nodes for
-	NodeID  N              // the node to send the message to
+	ActivityID coordt.ActivityID // the id of the publish operation that wants to send the message
+	Target     K                 // the key that the query wants to find closer nodes for
+	NodeID     N                 // the node to send the message to
 }
 
 // StatePoolWaiting indicates that the publish [Pool] holds publishes but none of them had
@@ -306,20 +306,20 @@ type StatePoolWaiting struct {
 // sent to the given node to store a record. The caller is expected to report the outcome
 // with an [EventPoolStoreRecordSuccess] or [EventPoolStoreRecordFailure] event.
 type StatePoolStoreRecord[K kad.Key[K], N kad.NodeID[K], M coordt.Message[K, N]] struct {
-	QueryID coordt.QueryID // the id of the publish operation that wants to send the message
-	NodeID  N              // the node to send the message to
-	Message M              // the message that should be sent to the remote node
+	ActivityID coordt.ActivityID // the id of the publish operation that wants to send the message
+	NodeID     N                 // the node to send the message to
+	Message    M                 // the message that should be sent to the remote node
 }
 
-// StatePoolPublishFinished indicates that the publish operation with the id QueryID has
+// StatePoolPublishFinished indicates that the publish operation with the id ActivityID has
 // finished. Contacted holds every node asked to store the record, and excludes the nodes
 // queried to find the closest ones. Errors is keyed by the string representation of a node in
 // Contacted and holds the error that node returned, so an operation in which every store
 // succeeded carries an empty map.
 type StatePoolPublishFinished[K kad.Key[K], N kad.NodeID[K]] struct {
-	QueryID   coordt.QueryID      // the id of the publish operation that has finished
-	Contacted []N                 // all nodes asked to store the record, successful or not
-	Errors    map[string]struct { // the error returned by any contacted node that failed
+	ActivityID coordt.ActivityID   // the id of the publish operation that has finished
+	Contacted  []N                 // all nodes asked to store the record, successful or not
+	Errors     map[string]struct { // the error returned by any contacted node that failed
 		Node N     // a node from the Contacted slice
 		Err  error // the error that happened when contacting that Node
 	}
@@ -351,74 +351,74 @@ type EventPoolPoll struct{}
 // EventPoolStartFollowUp starts a publish that runs the [FollowUp] strategy, finding the nodes
 // closest to the target key before storing the record with any of them.
 type EventPoolStartFollowUp[K kad.Key[K], N kad.NodeID[K], M coordt.Message[K, N]] struct {
-	QueryID coordt.QueryID // the unique id for this operation
-	Target  K              // the key the record is stored under
-	Message M              // the message that carries the record to the nodes it is stored with
-	Seed    []N            // the closest nodes known so far, from where the query starts
+	ActivityID coordt.ActivityID // the unique id for this operation
+	Target     K                 // the key the record is stored under
+	Message    M                 // the message that carries the record to the nodes it is stored with
+	Seed       []N               // the closest nodes known so far, from where the query starts
 }
 
 // EventPoolStartStatic starts a publish that runs the [Static] strategy, storing the record
 // with a fixed set of nodes.
 type EventPoolStartStatic[K kad.Key[K], N kad.NodeID[K], M coordt.Message[K, N]] struct {
-	QueryID coordt.QueryID // the unique id for this operation
-	Target  K              // the key the record is stored under
-	Message M              // the message that carries the record to the nodes it is stored with
-	Nodes   []N            // the nodes the record is stored with
+	ActivityID coordt.ActivityID // the unique id for this operation
+	Target     K                 // the key the record is stored under
+	Message    M                 // the message that carries the record to the nodes it is stored with
+	Nodes      []N               // the nodes the record is stored with
 }
 
 // EventPoolStartOptimistic starts a publish that runs the [Optimistic] strategy, storing the
 // record with nodes as the walk towards the target key finds them.
 type EventPoolStartOptimistic[K kad.Key[K], N kad.NodeID[K], M coordt.Message[K, N]] struct {
-	QueryID     coordt.QueryID // the unique id for this operation
-	Target      K              // the key the record is stored under
-	Message     M              // the message that carries the record to the nodes it is stored with
-	Seed        []N            // the closest nodes known so far, from where the walk starts
-	NetworkSize int            // the estimated number of nodes in the network
+	ActivityID  coordt.ActivityID // the unique id for this operation
+	Target      K                 // the key the record is stored under
+	Message     M                 // the message that carries the record to the nodes it is stored with
+	Seed        []N               // the closest nodes known so far, from where the walk starts
+	NetworkSize int               // the estimated number of nodes in the network
 }
 
 // EventPoolStopPublish notifies publish [Pool] to stop a publish
 // operation.
 type EventPoolStopPublish struct {
-	QueryID coordt.QueryID // the id of the publish operation that should be stopped
+	ActivityID coordt.ActivityID // the id of the publish operation that should be stopped
 }
 
 // EventPoolGetCloserNodesSuccess notifies a [Pool] that a remote node (NodeID)
 // has successfully responded with closer nodes (CloserNodes) to the Target key
-// for the publish operation with the given id (QueryID).
+// for the publish operation with the given id (ActivityID).
 type EventPoolGetCloserNodesSuccess[K kad.Key[K], N kad.NodeID[K]] struct {
-	QueryID     coordt.QueryID // the id of the publish operation that this response belongs to
-	NodeID      N              // the node the message was sent to and that replied
-	Target      K              // the key that closer nodes are searched for
-	CloserNodes []N            // the closer nodes sent by the node NodeID
+	ActivityID  coordt.ActivityID // the id of the publish operation that this response belongs to
+	NodeID      N                 // the node the message was sent to and that replied
+	Target      K                 // the key that closer nodes are searched for
+	CloserNodes []N               // the closer nodes sent by the node NodeID
 }
 
 // EventPoolGetCloserNodesFailure notifies a [Pool] that a remote node (NodeID)
 // has failed responding with closer nodes to the Target key for the publish
-// operation with the given id (QueryID).
+// operation with the given id (ActivityID).
 type EventPoolGetCloserNodesFailure[K kad.Key[K], N kad.NodeID[K]] struct {
-	QueryID coordt.QueryID // the id of the query that sent the message
-	NodeID  N              // the node the message was sent to and that has replied
-	Target  K              // the key that closer nodes are searched for
-	Error   error          // the error that caused the failure, if any
+	ActivityID coordt.ActivityID // the id of the query that sent the message
+	NodeID     N                 // the node the message was sent to and that has replied
+	Target     K                 // the key that closer nodes are searched for
+	Error      error             // the error that caused the failure, if any
 }
 
 // EventPoolStoreRecordSuccess notifies the publish [Pool] that storing a record with a
 // remote node succeeded. Request holds the message that was sent. A response is optional,
 // since a protocol need not confirm a store, so Response may be nil.
 type EventPoolStoreRecordSuccess[K kad.Key[K], N kad.NodeID[K], M coordt.Message[K, N]] struct {
-	QueryID  coordt.QueryID // the id of the query that sent the message
-	NodeID   N              // the node the message was sent to
-	Request  M              // the message that was sent to the remote node
-	Response M              // the reply from the remote node, nil if the protocol sends none
+	ActivityID coordt.ActivityID // the id of the query that sent the message
+	NodeID     N                 // the node the message was sent to
+	Request    M                 // the message that was sent to the remote node
+	Response   M                 // the reply from the remote node, nil if the protocol sends none
 }
 
 // EventPoolStoreRecordFailure notifies the publish [Pool] that storing a record with a
 // remote node failed. Request holds the message that was sent and Error the reason it failed.
 type EventPoolStoreRecordFailure[K kad.Key[K], N kad.NodeID[K], M coordt.Message[K, N]] struct {
-	QueryID coordt.QueryID // the id of the query that sent the message
-	NodeID  N              // the node the message was sent to
-	Request M              // the message that was sent to the remote node
-	Error   error          // the error that caused the failure
+	ActivityID coordt.ActivityID // the id of the query that sent the message
+	NodeID     N                 // the node the message was sent to
+	Request    M                 // the message that was sent to the remote node
+	Error      error             // the error that caused the failure
 }
 
 // poolEvent() ensures that only events accepted by a publish [Pool] can be
