@@ -719,8 +719,6 @@ func (r *recordingRouter) storedWith() map[tiny.Key][]tiny.Node {
 
 // TestCoordinatorRegionSurveyTriggersPublish drives the region publishing path end to end.
 func TestCoordinatorRegionSurveyTriggersPublish(t *testing.T) {
-	ctx := kadtest.CtxShort(t)
-
 	_, nodes, err := linearTopology(4)
 	require.NoError(t, err)
 
@@ -741,9 +739,9 @@ func TestCoordinatorRegionSurveyTriggersPublish(t *testing.T) {
 
 	ccfg := DefaultCoordinatorConfig[tiny.Key, tiny.Node, tiny.Message]()
 	ccfg.ReplicationFactor = 2
-	ccfg.Routing.EnableSurvey = true
-	ccfg.Routing.SurveyTargetFunc = regionTarget
-	ccfg.Routing.SurveyInitialPrefixLen = 0
+	ccfg.Publish.EnableSurvey = true
+	ccfg.Publish.SurveyTargetFunc = regionTarget
+	ccfg.Publish.SurveyInitialPrefixLen = 0
 	ccfg.Publish.Keystore = ks
 	ccfg.Publish.RecordSource = func(k tiny.Key) tiny.Message {
 		return tiny.Message{Content: regionRecordContent, TargetKey: k}
@@ -753,21 +751,7 @@ func TestCoordinatorRegionSurveyTriggersPublish(t *testing.T) {
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, c.Close()) })
 
-	rn := NewBufferedRoutingNotifier[tiny.Key, tiny.Node]()
-	c.SetRoutingNotifier(rn)
-
-	// the survey of the single region finishes and travels out as a region surveyed notification
-	ev, err := rn.Expect(ctx, &EventRegionSurveyed[tiny.Key, tiny.Node]{})
-	require.NoError(t, err)
-	surveyed := ev.(*EventRegionSurveyed[tiny.Key, tiny.Node])
-	require.NotEmpty(t, surveyed.Nodes, "the survey should have found nodes in the region")
-
-	members := map[string]bool{}
-	for _, n := range surveyed.Nodes {
-		members[n.String()] = true
-	}
-
-	// the region publish stores every provided key
+	// the survey of the single region finishes and its region publish stores every provided key
 	require.Eventually(t, func() bool {
 		stored := rtr.storedWith()
 		for _, k := range keys {
@@ -777,6 +761,12 @@ func TestCoordinatorRegionSurveyTriggersPublish(t *testing.T) {
 		}
 		return true
 	}, time.Second, time.Millisecond, "every provided key should be stored")
+
+	// the surveyed region holds the other nodes, so every store lands on one of them
+	members := map[string]bool{}
+	for _, n := range nodes[1:] {
+		members[n.NodeID.String()] = true
+	}
 
 	// every node a key was stored with belongs to the surveyed region and is used only once per key
 	for k, tos := range rtr.storedWith() {

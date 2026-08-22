@@ -16,7 +16,6 @@ import (
 
 	"github.com/iand/xorbie/coordt"
 	"github.com/iand/xorbie/netsize"
-	"github.com/iand/xorbie/prefix"
 	"github.com/iand/xorbie/routing"
 )
 
@@ -113,39 +112,6 @@ type RoutingConfig[K kad.Key[K], N kad.NodeID[K]] struct {
 	// It must be between 0 and 0.05. When zero, no jitter is applied.
 	// See the documentation for [routing.DynamicExploreSchedule] for the precise formula used to calculate explore intervals.
 	ExploreIntervalJitter float64
-
-	// EnableSurvey turns on the region survey, which keeps a region map current by surveying each
-	// region on a schedule. When enabled a survey target function must be supplied.
-	EnableSurvey bool
-
-	// SurveyTargetFunc mints a key inside a region from its prefix, used to survey the region. It
-	// must be supplied when the survey is enabled.
-	SurveyTargetFunc routing.PrefixTargetFunc[K]
-
-	// SurveyInterval is the time within which every region in the network is surveyed once.
-	SurveyInterval time.Duration
-
-	// SurveyRegionTimeout is the maximum time to allow for surveying a region.
-	SurveyRegionTimeout time.Duration
-
-	// SurveyRequestConcurrency is the maximum number of concurrent requests that a region survey may have in flight.
-	SurveyRequestConcurrency int
-
-	// SurveyRequestTimeout is the timeout the behaviour should use when attempting to contact a node while surveying a region.
-	SurveyRequestTimeout time.Duration
-
-	// SurveyWalkInBound is the number of nodes a region survey contacts without finding a region member
-	// before concluding the region is empty.
-	SurveyWalkInBound int
-
-	// SurveyInitialPrefixLen is the prefix length the region map is seeded with, giving 2^SurveyInitialPrefixLen regions.
-	SurveyInitialPrefixLen int
-
-	// SurveyMinPopulation is the region population at or below which two sibling regions merge.
-	SurveyMinPopulation int
-
-	// SurveyMaxPopulation is the region population above which a region splits.
-	SurveyMaxPopulation int
 }
 
 // Validate checks the configuration options and returns an error if any have invalid values.
@@ -322,50 +288,6 @@ func (cfg *RoutingConfig[K, N]) Validate() error {
 		}
 	}
 
-	if cfg.EnableSurvey {
-		if cfg.SurveyTargetFunc == nil {
-			return &coordt.ConfigurationError{
-				Component: "RoutingConfig",
-				Err:       fmt.Errorf("survey target function must not be nil when survey is enabled"),
-			}
-		}
-
-		if cfg.SurveyInterval < 1 {
-			return &coordt.ConfigurationError{
-				Component: "RoutingConfig",
-				Err:       fmt.Errorf("survey interval must be greater than zero"),
-			}
-		}
-
-		if cfg.SurveyRegionTimeout < 1 {
-			return &coordt.ConfigurationError{
-				Component: "RoutingConfig",
-				Err:       fmt.Errorf("survey region timeout must be greater than zero"),
-			}
-		}
-
-		if cfg.SurveyRequestConcurrency < 1 {
-			return &coordt.ConfigurationError{
-				Component: "RoutingConfig",
-				Err:       fmt.Errorf("survey request concurrency must be greater than zero"),
-			}
-		}
-
-		if cfg.SurveyRequestTimeout < 1 {
-			return &coordt.ConfigurationError{
-				Component: "RoutingConfig",
-				Err:       fmt.Errorf("survey request timeout must be greater than zero"),
-			}
-		}
-
-		if cfg.SurveyWalkInBound < 1 {
-			return &coordt.ConfigurationError{
-				Component: "RoutingConfig",
-				Err:       fmt.Errorf("survey walk-in bound must be greater than zero"),
-			}
-		}
-	}
-
 	return nil
 }
 
@@ -399,16 +321,6 @@ func DefaultRoutingConfig[K kad.Key[K], N kad.NodeID[K]]() *RoutingConfig[K, N] 
 		ExploreInterval:           10 * time.Minute, // MAGIC
 		ExploreIntervalMultiplier: 1,                // MAGIC
 		ExploreIntervalJitter:     0,                // MAGIC
-
-		EnableSurvey:             false,
-		SurveyInterval:           22 * time.Hour,  // MAGIC
-		SurveyRegionTimeout:      5 * time.Minute, // MAGIC
-		SurveyRequestConcurrency: 3,               // MAGIC
-		SurveyRequestTimeout:     time.Minute,     // MAGIC
-		SurveyWalkInBound:        20,              // MAGIC
-		SurveyInitialPrefixLen:   0,               // MAGIC
-		SurveyMinPopulation:      10,              // MAGIC
-		SurveyMaxPopulation:      40,              // MAGIC
 	}
 }
 
@@ -439,11 +351,6 @@ type RoutingBehaviour[K kad.Key[K], N kad.NodeID[K]] struct {
 	// it must only be accessed while performMu is held
 	explore coordt.StateMachine[routing.ExploreEvent, routing.ExploreState]
 
-	// survey is the region survey state machine, responsible for keeping the region map current by surveying
-	// each region on a schedule. It is nil unless [RoutingConfig.EnableSurvey] is set.
-	// it must only be accessed while performMu is held
-	survey coordt.StateMachine[routing.SurveyEvent, routing.SurveyState]
-
 	// pendingOutbound is a queue of outbound events.
 	// it must only be accessed while performMu is held
 	pendingOutbound []BehaviourEvent
@@ -463,15 +370,14 @@ type RoutingBehaviour[K kad.Key[K], N kad.NodeID[K]] struct {
 	// counterRemovals counts the nodes removed from the routing table.
 	counterRemovals metric.Int64Counter
 
-	// bootstrapDue, includeDue, probeDue, exploreDue and surveyDue hold the time each child
-	// state machine last reported it could next make progress without an event arriving, or the
-	// zero time if it reported none. Each is written only when its own child is advanced.
+	// bootstrapDue, includeDue, probeDue and exploreDue hold the time each child state machine last
+	// reported it could next make progress without an event arriving, or the zero time if it
+	// reported none. Each is written only when its own child is advanced.
 	// they must only be accessed while performMu is held
 	bootstrapDue time.Time
 	includeDue   time.Time
 	probeDue     time.Time
 	exploreDue   time.Time
-	surveyDue    time.Time
 
 	// pollAgain records that a child reported the end of its work rather than a due time,
 	// so the recorded due times are stale until the children are polled again.
@@ -549,33 +455,7 @@ func NewRoutingBehaviour[K kad.Key[K], N kad.NodeID[K]](self N, rt routing.Routi
 		}
 	}
 
-	var survey coordt.StateMachine[routing.SurveyEvent, routing.SurveyState]
-	if cfg.EnableSurvey {
-		table, err := prefix.NewTable[K](&prefix.Config{
-			InitialPrefixLen: cfg.SurveyInitialPrefixLen,
-			MinPopulation:    cfg.SurveyMinPopulation,
-			MaxPopulation:    cfg.SurveyMaxPopulation,
-		})
-		if err != nil {
-			return nil, fmt.Errorf("survey table: %w", err)
-		}
-
-		surveyCfg := routing.DefaultSurveyConfig()
-		surveyCfg.Tracer = cfg.Tracer
-		surveyCfg.Meter = cfg.Meter
-		surveyCfg.Interval = cfg.SurveyInterval
-		surveyCfg.RegionTimeout = cfg.SurveyRegionTimeout
-		surveyCfg.RequestConcurrency = cfg.SurveyRequestConcurrency
-		surveyCfg.RequestTimeout = cfg.SurveyRequestTimeout
-		surveyCfg.WalkInBound = cfg.SurveyWalkInBound
-
-		survey, err = routing.NewSurvey(self, rt, table, cfg.SurveyTargetFunc, surveyCfg)
-		if err != nil {
-			return nil, fmt.Errorf("survey: %w", err)
-		}
-	}
-
-	return ComposeRoutingBehaviour(self, bootstrap, include, probe, explore, survey, cfg)
+	return ComposeRoutingBehaviour(self, bootstrap, include, probe, explore, cfg)
 }
 
 // ComposeRoutingBehaviour creates a [RoutingBehaviour] composed of the supplied state machines.
@@ -586,7 +466,6 @@ func ComposeRoutingBehaviour[K kad.Key[K], N kad.NodeID[K]](
 	include coordt.StateMachine[routing.IncludeEvent, routing.IncludeState],
 	probe coordt.StateMachine[routing.ProbeEvent, routing.ProbeState],
 	explore coordt.StateMachine[routing.ExploreEvent, routing.ExploreState],
-	survey coordt.StateMachine[routing.SurveyEvent, routing.SurveyState],
 	cfg *RoutingConfig[K, N],
 ) (*RoutingBehaviour[K, N], error) {
 	if cfg == nil {
@@ -602,7 +481,6 @@ func ComposeRoutingBehaviour[K kad.Key[K], N kad.NodeID[K]](
 		include:   include,
 		probe:     probe,
 		explore:   explore,
-		survey:    survey,
 		inbound:   newInboundQueue(cfg.QueueCapacity),
 		ready:     make(chan struct{}, 1),
 	}
@@ -647,9 +525,8 @@ func ComposeRoutingBehaviour[K kad.Key[K], N kad.NodeID[K]](
 
 	r.readyTimer = newReadyTimer(r.ready)
 
-	// The explore and survey schedules start running as soon as they are created, so signal ready
-	// once to get the Perform that arms a timer for them. Otherwise a node that is never notified
-	// never explores or surveys.
+	// The explore schedule starts running as soon as it is created, so signal ready once to get the
+	// Perform that arms a timer for it. Otherwise a node that is never notified never explores.
 	signalReady(r.ready)
 
 	return r, nil
@@ -748,8 +625,7 @@ func (r *RoutingBehaviour[K, N]) updateReadyStatus(performed bool) {
 func (r *RoutingBehaviour[K, N]) nextDue() time.Time {
 	due := earlier(r.bootstrapDue, r.includeDue)
 	due = earlier(due, r.probeDue)
-	due = earlier(due, r.exploreDue)
-	return earlier(due, r.surveyDue)
+	return earlier(due, r.exploreDue)
 }
 
 func (r *RoutingBehaviour[K, N]) nextPendingInbound() (CtxEvent[BehaviourEvent], bool) {
@@ -858,13 +734,6 @@ func (r *RoutingBehaviour[K, N]) performNextInbound() (BehaviourEvent, bool) {
 			}
 			return r.advanceExplore(ctx, now, cmd)
 
-		case routing.SurveyActivityID:
-			cmd := &routing.EventSurveyFindCloserResponse[K, N]{
-				NodeID:      ev.To,
-				CloserNodes: ev.CloserNodes,
-			}
-			return r.advanceSurvey(ctx, now, cmd)
-
 		default:
 			panic(fmt.Sprintf("unexpected activity id: %s", ev.ActivityID))
 		}
@@ -913,14 +782,6 @@ func (r *RoutingBehaviour[K, N]) performNextInbound() (BehaviourEvent, bool) {
 			}
 			// attempt to advance the explore
 			return r.advanceExplore(ctx, now, cmd)
-
-		case routing.SurveyActivityID:
-			cmd := &routing.EventSurveyFindCloserFailure[K, N]{
-				NodeID: ev.To,
-				Error:  ev.Err,
-			}
-			// attempt to advance the survey
-			return r.advanceSurvey(ctx, now, cmd)
 
 		default:
 			panic(fmt.Sprintf("unexpected activity id: %s", ev.ActivityID))
@@ -988,11 +849,6 @@ func (r *RoutingBehaviour[K, N]) pollChildren(ctx context.Context) {
 	}
 
 	ev, ok = r.advanceExplore(ctx, now, &routing.EventExplorePoll{})
-	if ok {
-		r.pendingOutbound = append(r.pendingOutbound, ev)
-	}
-
-	ev, ok = r.advanceSurvey(ctx, now, &routing.EventSurveyPoll{})
 	if ok {
 		r.pendingOutbound = append(r.pendingOutbound, ev)
 	}
@@ -1192,60 +1048,6 @@ func (r *RoutingBehaviour[K, N]) advanceExplore(ctx context.Context, now time.Ti
 		r.exploreDue = st.NextDue
 	default:
 		panic(fmt.Sprintf("unexpected explore state: %T", st))
-	}
-
-	return nil, false
-}
-
-// advanceSurvey advances the survey state machine. When no survey is configured it is a no-op, so
-// callers may advance it unconditionally.
-func (r *RoutingBehaviour[K, N]) advanceSurvey(ctx context.Context, now time.Time, ev routing.SurveyEvent) (BehaviourEvent, bool) {
-	if r.survey == nil {
-		return nil, false
-	}
-
-	ctx, span := r.cfg.Tracer.Start(ctx, "RoutingBehaviour.advanceSurvey")
-	defer span.End()
-	state := r.survey.Advance(ctx, now, ev)
-	switch st := state.(type) {
-
-	case *routing.StateSurveyFindCloser[K, N]:
-		r.cfg.Logger.Debug("starting survey", logAttrNodeID(st.NodeID))
-		return &EventOutboundGetCloserNodes[K, N]{
-			ActivityID: routing.SurveyActivityID,
-			To:         st.NodeID,
-			Target:     st.Target,
-			Notify:     r,
-		}, true
-
-	case *routing.StateSurveyWaiting:
-		// survey waiting for a message response, nothing to do
-		r.surveyDue = st.NextDue
-	case *routing.StateSurveyFinished[K, N]:
-		// the region has been surveyed, so report its members outwards. The survey has released
-		// its query and rescheduled the region, so it must be advanced again to report when the
-		// next region falls due.
-		r.surveyDue = time.Time{}
-		r.pollAgain = true
-		return &EventRegionSurveyed[K, N]{
-			Prefix: st.Prefix,
-			Nodes:  st.Nodes,
-		}, true
-	case *routing.StateSurveyTimeout:
-		// the region has been rescheduled, so the survey must be advanced again to report when the
-		// next region falls due
-		r.cfg.Logger.Debug("survey timed out", slog.String("prefix", string(st.Prefix)))
-		r.pollAgain = true
-	case *routing.StateSurveyFailure:
-		// the region has been rescheduled, so the survey must be advanced again to report when the
-		// next region falls due
-		r.cfg.Logger.Warn("survey failure", slog.String("prefix", string(st.Prefix)), logAttrError(st.Error))
-		r.pollAgain = true
-	case *routing.StateSurveyIdle:
-		// no region is due to be surveyed, nothing to do
-		r.surveyDue = st.NextDue
-	default:
-		panic(fmt.Sprintf("unexpected survey state: %T", st))
 	}
 
 	return nil, false

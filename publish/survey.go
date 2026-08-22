@@ -1,4 +1,4 @@
-package routing
+package publish
 
 import (
 	"container/heap"
@@ -42,7 +42,7 @@ type Survey[K kad.Key[K], N kad.NodeID[K]] struct {
 	self N
 
 	// rt is the local routing table, used to seed each coverage query
-	rt RoutingTableCpl[K, N]
+	rt kad.RoutingTable[K, N]
 
 	// table is the shared region map the survey maintains
 	table *prefix.Table[K]
@@ -189,7 +189,7 @@ func DefaultSurveyConfig() *SurveyConfig {
 	}
 }
 
-func NewSurvey[K kad.Key[K], N kad.NodeID[K]](self N, rt RoutingTableCpl[K, N], table *prefix.Table[K], targetFn PrefixTargetFunc[K], cfg *SurveyConfig) (*Survey[K, N], error) {
+func NewSurvey[K kad.Key[K], N kad.NodeID[K]](self N, rt kad.RoutingTable[K, N], table *prefix.Table[K], targetFn PrefixTargetFunc[K], cfg *SurveyConfig) (*Survey[K, N], error) {
 	if cfg == nil {
 		cfg = DefaultSurveyConfig()
 	} else if err := cfg.Validate(); err != nil {

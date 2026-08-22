@@ -102,7 +102,7 @@ func newTestPublishBehaviour(t *testing.T, self tiny.Node) *PublishBehaviour[tin
 
 	bcfg := DefaultPublishConfig[tiny.Key, tiny.Node, tiny.Message]()
 
-	b, err := NewPublishBehaviour(pool, bcfg)
+	b, err := NewPublishBehaviour(pool, self, nil, bcfg)
 	require.NoError(t, err)
 
 	return b
@@ -138,7 +138,7 @@ func buildWaitingBootstrapBehaviour(t *testing.T, ctx context.Context) Behaviour
 	require.NoError(t, err)
 
 	cfg := DefaultRoutingConfig[tiny.Key, tiny.Node]()
-	b, err := ComposeRoutingBehaviour(nodes[0].NodeID, bootstrap, idleInclude(), idleProbe(), idleExplore(), nil, cfg)
+	b, err := ComposeRoutingBehaviour(nodes[0].NodeID, bootstrap, idleInclude(), idleProbe(), idleExplore(), cfg)
 	require.NoError(t, err)
 
 	b.Notify(ctx, &EventStartBootstrap[tiny.Key, tiny.Node]{
@@ -160,7 +160,7 @@ func buildWaitingIncludeBehaviour(t *testing.T, ctx context.Context) Behaviour[B
 	require.NoError(t, err)
 
 	cfg := DefaultRoutingConfig[tiny.Key, tiny.Node]()
-	b, err := ComposeRoutingBehaviour(nodes[0].NodeID, idleBootstrap(), include, idleProbe(), idleExplore(), nil, cfg)
+	b, err := ComposeRoutingBehaviour(nodes[0].NodeID, idleBootstrap(), include, idleProbe(), idleExplore(), cfg)
 	require.NoError(t, err)
 
 	b.Notify(ctx, &EventAddNode[tiny.Key, tiny.Node]{
@@ -182,7 +182,7 @@ func buildWaitingProbeBehaviour(t *testing.T, ctx context.Context) Behaviour[Beh
 	require.NoError(t, err)
 
 	cfg := DefaultRoutingConfig[tiny.Key, tiny.Node]()
-	b, err := ComposeRoutingBehaviour(nodes[0].NodeID, idleBootstrap(), idleInclude(), probe, idleExplore(), nil, cfg)
+	b, err := ComposeRoutingBehaviour(nodes[0].NodeID, idleBootstrap(), idleInclude(), probe, idleExplore(), cfg)
 	require.NoError(t, err)
 
 	// the linear topology puts the second node in the first node's routing table, which
@@ -206,7 +206,7 @@ func buildWaitingExploreBehaviour(t *testing.T, ctx context.Context) Behaviour[B
 	explore, err := routing.NewExplore(nodes[0].NodeID, nodes[0].RoutingTable, tiny.NodeWithCpl, schedule, routing.DefaultExploreConfig())
 	require.NoError(t, err)
 
-	b, err := ComposeRoutingBehaviour(nodes[0].NodeID, idleBootstrap(), idleInclude(), idleProbe(), explore, nil, cfg)
+	b, err := ComposeRoutingBehaviour(nodes[0].NodeID, idleBootstrap(), idleInclude(), idleProbe(), explore, cfg)
 	require.NoError(t, err)
 
 	return b
@@ -326,7 +326,7 @@ func TestBehaviourWithNoWorkArmsNoTimer(t *testing.T) {
 			name: "routing",
 			build: func(t *testing.T) (Behaviour[BehaviourEvent, BehaviourEvent], *readyTimer) {
 				cfg := DefaultRoutingConfig[tiny.Key, tiny.Node]()
-				b, err := ComposeRoutingBehaviour(testPeers(t, 1)[0].NodeID, idleBootstrap(), idleInclude(), idleProbe(), idleExplore(), nil, cfg)
+				b, err := ComposeRoutingBehaviour(testPeers(t, 1)[0].NodeID, idleBootstrap(), idleInclude(), idleProbe(), idleExplore(), cfg)
 				require.NoError(t, err)
 				return b, b.readyTimer
 			},

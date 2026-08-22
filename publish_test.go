@@ -1,8 +1,11 @@
 package xorbie
 
 import (
+	"errors"
 	"testing"
+	"time"
 
+	"github.com/ipfs/go-libdht/kad/key/bitstr"
 	"github.com/stretchr/testify/require"
 
 	"github.com/iand/xorbie/coordt"
@@ -31,7 +34,7 @@ func TestPublishBehaviourContactsAllSeeds(t *testing.T) {
 	pool, err := publish.NewPool[tiny.Key, tiny.Node, tiny.Message](self, nil)
 	require.NoError(t, err)
 
-	b, err := NewPublishBehaviour(pool, nil)
+	b, err := NewPublishBehaviour(pool, self, nil, nil)
 	require.NoError(t, err)
 
 	seeds := []tiny.Node{
@@ -81,7 +84,7 @@ func TestPublishBehaviourReportsDroppedPublishStart(t *testing.T) {
 	cfg := DefaultPublishConfig[tiny.Key, tiny.Node, tiny.Message]()
 	cfg.QueueCapacity = 1
 
-	b, err := NewPublishBehaviour(pool, cfg)
+	b, err := NewPublishBehaviour(pool, nodes[0].NodeID, nil, cfg)
 	require.NoError(t, err)
 
 	// take the queue's only place
@@ -119,9 +122,16 @@ func newRegionPublishBehaviour(t *testing.T, self tiny.Node, ks keystore.Keystor
 	cfg.RegionReplication = r
 	cfg.RegionMaxInFlight = maxInFlight
 
-	b, err := NewPublishBehaviour(pool, cfg)
+	b, err := NewPublishBehaviour(pool, self, nil, cfg)
 	require.NoError(t, err)
 	return b
+}
+
+// startRegion drives a region publish start the way a finished survey does, then signals the
+// behaviour ready so a following PerformWhileReady picks the region up.
+func startRegion(b *PublishBehaviour[tiny.Key, tiny.Node, tiny.Message], region bitstr.Key, nodes []tiny.Node) {
+	b.startRegionPublish(region, nodes)
+	signalReady(b.ready)
 }
 
 // sendMessages picks the outbound store messages out of a slice of emitted behaviour events.
@@ -154,11 +164,7 @@ func TestPublishBehaviourStartsRegionKeys(t *testing.T) {
 	b := newRegionPublishBehaviour(t, self, ks, 2, 8)
 
 	// the empty prefix names the whole region, so every stored key falls inside it
-	b.Notify(ctx, &EventStartRegionPublish[tiny.Key, tiny.Node]{
-		ActivityID: "region-1",
-		Prefix:     "",
-		Nodes:      region,
-	})
+	startRegion(b, "", region)
 
 	evs := PerformWhileReady(t, ctx, b)
 
@@ -200,11 +206,7 @@ func TestPublishBehaviourRegionCapAndCompletion(t *testing.T) {
 
 	b := newRegionPublishBehaviour(t, self, ks, 1, 1)
 
-	b.Notify(ctx, &EventStartRegionPublish[tiny.Key, tiny.Node]{
-		ActivityID: "region-1",
-		Prefix:     "",
-		Nodes:      region,
-	})
+	startRegion(b, "", region)
 
 	// with a cap of one only the first key's store goes out
 	first := sendMessages(PerformWhileReady(t, ctx, b))
@@ -247,16 +249,239 @@ func TestPublishBehaviourRegionDisabledWithoutKeystore(t *testing.T) {
 	pool, err := publish.NewPool[tiny.Key, tiny.Node, tiny.Message](self, nil)
 	require.NoError(t, err)
 
-	b, err := NewPublishBehaviour(pool, nil)
+	b, err := NewPublishBehaviour(pool, self, nil, nil)
 	require.NoError(t, err)
 
-	b.Notify(ctx, &EventStartRegionPublish[tiny.Key, tiny.Node]{
-		ActivityID: "region-1",
-		Prefix:     "",
-		Nodes:      []tiny.Node{nodes[1].NodeID},
-	})
+	startRegion(b, "", []tiny.Node{nodes[1].NodeID})
 
 	evs := PerformWhileReady(t, ctx, b)
 	require.Empty(t, sendMessages(evs), "no stores should be sent when region publishing is disabled")
 	require.Empty(t, b.regions, "no region should be created")
+}
+
+// idlePublishSurvey returns a survey state machine that is always idle.
+func idlePublishSurvey() *RecordingSM[publish.SurveyEvent, publish.SurveyState] {
+	return NewRecordingSM[publish.SurveyEvent, publish.SurveyState](&publish.StateSurveyIdle{})
+}
+
+// publishTargetFn is a survey target function that always returns the zero key.
+func publishTargetFn(bitstr.Key) (tiny.Key, error) { return tiny.Key(0), nil }
+
+func TestPublishConfigValidateSurvey(t *testing.T) {
+	t.Run("survey fields unchecked when survey disabled", func(t *testing.T) {
+		cfg := DefaultPublishConfig[tiny.Key, tiny.Node, tiny.Message]()
+
+		// with the survey disabled the survey fields are not enforced
+		cfg.SurveyInterval = 0
+		cfg.SurveyRequestConcurrency = 0
+		require.NoError(t, cfg.Validate())
+	})
+
+	t.Run("survey requires target function when enabled", func(t *testing.T) {
+		cfg := DefaultPublishConfig[tiny.Key, tiny.Node, tiny.Message]()
+		cfg.EnableSurvey = true
+
+		require.Error(t, cfg.Validate())
+	})
+
+	t.Run("survey interval positive when enabled", func(t *testing.T) {
+		cfg := DefaultPublishConfig[tiny.Key, tiny.Node, tiny.Message]()
+		cfg.EnableSurvey = true
+		cfg.SurveyTargetFunc = publishTargetFn
+
+		cfg.SurveyInterval = 0
+		require.Error(t, cfg.Validate())
+		cfg.SurveyInterval = -1
+		require.Error(t, cfg.Validate())
+	})
+
+	t.Run("survey region timeout positive when enabled", func(t *testing.T) {
+		cfg := DefaultPublishConfig[tiny.Key, tiny.Node, tiny.Message]()
+		cfg.EnableSurvey = true
+		cfg.SurveyTargetFunc = publishTargetFn
+
+		cfg.SurveyRegionTimeout = 0
+		require.Error(t, cfg.Validate())
+		cfg.SurveyRegionTimeout = -1
+		require.Error(t, cfg.Validate())
+	})
+
+	t.Run("survey request concurrency positive when enabled", func(t *testing.T) {
+		cfg := DefaultPublishConfig[tiny.Key, tiny.Node, tiny.Message]()
+		cfg.EnableSurvey = true
+		cfg.SurveyTargetFunc = publishTargetFn
+
+		cfg.SurveyRequestConcurrency = 0
+		require.Error(t, cfg.Validate())
+		cfg.SurveyRequestConcurrency = -1
+		require.Error(t, cfg.Validate())
+	})
+
+	t.Run("survey request timeout positive when enabled", func(t *testing.T) {
+		cfg := DefaultPublishConfig[tiny.Key, tiny.Node, tiny.Message]()
+		cfg.EnableSurvey = true
+		cfg.SurveyTargetFunc = publishTargetFn
+
+		cfg.SurveyRequestTimeout = 0
+		require.Error(t, cfg.Validate())
+		cfg.SurveyRequestTimeout = -1
+		require.Error(t, cfg.Validate())
+	})
+
+	t.Run("survey walk-in bound positive when enabled", func(t *testing.T) {
+		cfg := DefaultPublishConfig[tiny.Key, tiny.Node, tiny.Message]()
+		cfg.EnableSurvey = true
+		cfg.SurveyTargetFunc = publishTargetFn
+
+		cfg.SurveyWalkInBound = 0
+		require.Error(t, cfg.Validate())
+		cfg.SurveyWalkInBound = -1
+		require.Error(t, cfg.Validate())
+	})
+}
+
+func TestNewPublishBehaviourSurveyDisabled(t *testing.T) {
+	nodes := testPeers(t, 4)
+	self := nodes[0].NodeID
+
+	pool, err := publish.NewPool[tiny.Key, tiny.Node, tiny.Message](self, nil)
+	require.NoError(t, err)
+
+	// with no survey target function the survey is left off
+	cfg := DefaultPublishConfig[tiny.Key, tiny.Node, tiny.Message]()
+	b, err := NewPublishBehaviour(pool, self, nodes[0].RoutingTable, cfg)
+	require.NoError(t, err)
+	require.Nil(t, b.survey)
+}
+
+func TestNewPublishBehaviourSurveyEnabled(t *testing.T) {
+	nodes := testPeers(t, 4)
+	self := nodes[0].NodeID
+
+	pool, err := publish.NewPool[tiny.Key, tiny.Node, tiny.Message](self, nil)
+	require.NoError(t, err)
+
+	// enabling the survey with a target function turns it on
+	cfg := DefaultPublishConfig[tiny.Key, tiny.Node, tiny.Message]()
+	cfg.EnableSurvey = true
+	cfg.SurveyTargetFunc = publishTargetFn
+	b, err := NewPublishBehaviour(pool, self, nodes[0].RoutingTable, cfg)
+	require.NoError(t, err)
+	require.NotNil(t, b.survey)
+}
+
+func TestNewPublishBehaviourSurveyEnabledRequiresTargetFn(t *testing.T) {
+	nodes := testPeers(t, 4)
+	self := nodes[0].NodeID
+
+	pool, err := publish.NewPool[tiny.Key, tiny.Node, tiny.Message](self, nil)
+	require.NoError(t, err)
+
+	// enabling the survey without a target function is a configuration error
+	cfg := DefaultPublishConfig[tiny.Key, tiny.Node, tiny.Message]()
+	cfg.EnableSurvey = true
+	_, err = NewPublishBehaviour(pool, self, nodes[0].RoutingTable, cfg)
+	require.Error(t, err)
+}
+
+func TestPublishBehaviourSurveySendsFindCloser(t *testing.T) {
+	ctx := kadtest.CtxShort(t)
+
+	nodes := testPeers(t, 4)
+	self := nodes[0].NodeID
+
+	b := newTestPublishBehaviour(t, self)
+
+	// a survey that wants to find closer nodes for a target inside a region
+	b.survey = NewRecordingSM[publish.SurveyEvent, publish.SurveyState](&publish.StateSurveyFindCloser[tiny.Key, tiny.Node]{
+		ActivityID: publish.SurveyActivityID,
+		Target:     self.Key(),
+		NodeID:     nodes[1].NodeID,
+	})
+
+	dev, ok := b.advanceSurvey(ctx, time.Now(), &publish.EventSurveyPoll{})
+	require.True(t, ok)
+
+	// the survey should be asking to send a message to the node
+	require.IsType(t, &EventOutboundGetCloserNodes[tiny.Key, tiny.Node]{}, dev)
+	gcl := dev.(*EventOutboundGetCloserNodes[tiny.Key, tiny.Node])
+	require.Equal(t, publish.SurveyActivityID, gcl.ActivityID)
+	require.Equal(t, nodes[1].NodeID, gcl.To)
+	require.Equal(t, self.Key(), gcl.Target)
+}
+
+func TestPublishBehaviourSurveyFinishedStartsRegion(t *testing.T) {
+	ctx := kadtest.CtxShort(t)
+
+	nodes := testPeers(t, 5)
+	self := nodes[0].NodeID
+	region := []tiny.Node{nodes[1].NodeID, nodes[2].NodeID}
+
+	ks := keystore.New[tiny.Key]()
+	ks.Add(tiny.Key(0b0000_0001))
+
+	b := newRegionPublishBehaviour(t, self, ks, 2, 8)
+
+	// a survey that has finished surveying the whole region
+	b.survey = NewRecordingSM[publish.SurveyEvent, publish.SurveyState](&publish.StateSurveyFinished[tiny.Key, tiny.Node]{
+		Prefix: "",
+		Nodes:  region,
+	})
+
+	_, ok := b.advanceSurvey(ctx, time.Now(), &publish.EventSurveyPoll{})
+	require.False(t, ok)
+	require.Len(t, b.regions, 1, "a finished survey starts a region publish")
+}
+
+func TestPublishBehaviourSurveyGetCloserNodesSuccess(t *testing.T) {
+	ctx := kadtest.CtxShort(t)
+
+	nodes := testPeers(t, 4)
+	self := nodes[0].NodeID
+
+	b := newTestPublishBehaviour(t, self)
+	survey := idlePublishSurvey()
+	b.survey = survey
+
+	ev := &EventGetCloserNodesSuccess[tiny.Key, tiny.Node]{
+		ActivityID:  publish.SurveyActivityID,
+		To:          nodes[1].NodeID,
+		Target:      self.Key(),
+		CloserNodes: []tiny.Node{nodes[2].NodeID},
+	}
+	b.Notify(ctx, ev)
+	PerformWhileReady(t, ctx, b)
+
+	// the survey should receive the message response event
+	require.IsType(t, &publish.EventSurveyFindCloserResponse[tiny.Key, tiny.Node]{}, survey.first())
+	rev := survey.first().(*publish.EventSurveyFindCloserResponse[tiny.Key, tiny.Node])
+	require.True(t, nodes[1].NodeID.Equal(rev.NodeID))
+	require.Equal(t, ev.CloserNodes, rev.CloserNodes)
+}
+
+func TestPublishBehaviourSurveyGetCloserNodesFailure(t *testing.T) {
+	ctx := kadtest.CtxShort(t)
+
+	nodes := testPeers(t, 4)
+	self := nodes[0].NodeID
+
+	b := newTestPublishBehaviour(t, self)
+	survey := idlePublishSurvey()
+	b.survey = survey
+
+	failure := errors.New("failed")
+	ev := &EventGetCloserNodesFailure[tiny.Key, tiny.Node]{
+		ActivityID: publish.SurveyActivityID,
+		To:         nodes[1].NodeID,
+		Target:     self.Key(),
+		Err:        failure,
+	}
+	b.Notify(ctx, ev)
+	PerformWhileReady(t, ctx, b)
+
+	// the survey should receive the message failure event
+	require.IsType(t, &publish.EventSurveyFindCloserFailure[tiny.Key, tiny.Node]{}, survey.first())
+	rev := survey.first().(*publish.EventSurveyFindCloserFailure[tiny.Key, tiny.Node])
+	require.Equal(t, nodes[1].NodeID, rev.NodeID)
+	require.Equal(t, failure, rev.Error)
 }

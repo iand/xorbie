@@ -318,7 +318,7 @@ func NewCoordinator[K kad.Key[K], N kad.NodeID[K], M coordt.Message[K, N]](
 		return nil, fmt.Errorf("publish: %w", err)
 	}
 
-	publishBehaviour, err := NewPublishBehaviour(b, &cfg.Publish)
+	publishBehaviour, err := NewPublishBehaviour(b, self, rt, &cfg.Publish)
 	if err != nil {
 		return nil, fmt.Errorf("publish behaviour: %w", err)
 	}
@@ -412,16 +412,6 @@ func (c *Coordinator[K, N, M]) dispatchEvent(ctx context.Context, ev BehaviourEv
 		c.publishBehaviour.Notify(ctx, ev)
 	case RoutingCommand:
 		c.routingBehaviour.Notify(ctx, ev)
-	case *EventRegionSurveyed[K, N]:
-		c.routingNotifierMu.RLock()
-		rn := c.routingNotifier
-		c.routingNotifierMu.RUnlock()
-		rn.Notify(ctx, ev)
-		c.publishBehaviour.Notify(ctx, &EventStartRegionPublish[K, N]{
-			ActivityID: c.newActivityID(),
-			Prefix:     ev.Prefix,
-			Nodes:      ev.Nodes,
-		})
 	case RoutingNotification:
 		c.routingNotifierMu.RLock()
 		rn := c.routingNotifier

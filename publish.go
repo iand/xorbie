@@ -12,9 +12,11 @@ import (
 	"go.opentelemetry.io/otel/trace"
 
 	"github.com/ipfs/go-libdht/kad"
+	"github.com/ipfs/go-libdht/kad/key/bitstr"
 
 	"github.com/iand/xorbie/coordt"
 	"github.com/iand/xorbie/keystore"
+	"github.com/iand/xorbie/prefix"
 	"github.com/iand/xorbie/publish"
 )
 
@@ -61,6 +63,39 @@ type PublishConfig[K kad.Key[K], N kad.NodeID[K], M coordt.Message[K, N]] struct
 	// RegionMaxInFlight is the greatest number of per-key publishes a region publish may have in
 	// flight at once.
 	RegionMaxInFlight int
+
+	// EnableSurvey turns on the region survey, which keeps a region map current by surveying each
+	// region on a schedule. When enabled a survey target function must be supplied.
+	EnableSurvey bool
+
+	// SurveyTargetFunc mints a key inside a region from its prefix, used to survey the region. It
+	// must be supplied when the survey is enabled.
+	SurveyTargetFunc publish.PrefixTargetFunc[K]
+
+	// SurveyInterval is the time within which every region in the network is surveyed once.
+	SurveyInterval time.Duration
+
+	// SurveyRegionTimeout is the maximum time to allow for surveying a region.
+	SurveyRegionTimeout time.Duration
+
+	// SurveyRequestConcurrency is the maximum number of concurrent requests that a region survey may have in flight.
+	SurveyRequestConcurrency int
+
+	// SurveyRequestTimeout is the timeout the behaviour should use when attempting to contact a node while surveying a region.
+	SurveyRequestTimeout time.Duration
+
+	// SurveyWalkInBound is the number of nodes a region survey contacts without finding a region member
+	// before concluding the region is empty.
+	SurveyWalkInBound int
+
+	// SurveyInitialPrefixLen is the prefix length the region map is seeded with, giving 2^SurveyInitialPrefixLen regions.
+	SurveyInitialPrefixLen int
+
+	// SurveyMinPopulation is the region population at or below which two sibling regions merge.
+	SurveyMinPopulation int
+
+	// SurveyMaxPopulation is the region population above which a region splits.
+	SurveyMaxPopulation int
 }
 
 // Validate checks the configuration options and returns an error if any have invalid values.
@@ -110,6 +145,50 @@ func (cfg *PublishConfig[K, N, M]) Validate() error {
 		}
 	}
 
+	if cfg.EnableSurvey {
+		if cfg.SurveyTargetFunc == nil {
+			return &coordt.ConfigurationError{
+				Component: "PublishConfig",
+				Err:       fmt.Errorf("survey target function must not be nil when survey is enabled"),
+			}
+		}
+
+		if cfg.SurveyInterval < 1 {
+			return &coordt.ConfigurationError{
+				Component: "PublishConfig",
+				Err:       fmt.Errorf("survey interval must be greater than zero"),
+			}
+		}
+
+		if cfg.SurveyRegionTimeout < 1 {
+			return &coordt.ConfigurationError{
+				Component: "PublishConfig",
+				Err:       fmt.Errorf("survey region timeout must be greater than zero"),
+			}
+		}
+
+		if cfg.SurveyRequestConcurrency < 1 {
+			return &coordt.ConfigurationError{
+				Component: "PublishConfig",
+				Err:       fmt.Errorf("survey request concurrency must be greater than zero"),
+			}
+		}
+
+		if cfg.SurveyRequestTimeout < 1 {
+			return &coordt.ConfigurationError{
+				Component: "PublishConfig",
+				Err:       fmt.Errorf("survey request timeout must be greater than zero"),
+			}
+		}
+
+		if cfg.SurveyWalkInBound < 1 {
+			return &coordt.ConfigurationError{
+				Component: "PublishConfig",
+				Err:       fmt.Errorf("survey walk-in bound must be greater than zero"),
+			}
+		}
+	}
+
 	return nil
 }
 
@@ -122,6 +201,16 @@ func DefaultPublishConfig[K kad.Key[K], N kad.NodeID[K], M coordt.Message[K, N]]
 		OptimisticIndividualCertainty: 0.9,  // MAGIC
 		OptimisticSetStrictness:       0.1,  // MAGIC
 		RegionMaxInFlight:             16,   // MAGIC
+
+		EnableSurvey:             false,
+		SurveyInterval:           22 * time.Hour,  // MAGIC
+		SurveyRegionTimeout:      5 * time.Minute, // MAGIC
+		SurveyRequestConcurrency: 3,               // MAGIC
+		SurveyRequestTimeout:     time.Minute,     // MAGIC
+		SurveyWalkInBound:        20,              // MAGIC
+		SurveyInitialPrefixLen:   0,               // MAGIC
+		SurveyMinPopulation:      10,              // MAGIC
+		SurveyMaxPopulation:      40,              // MAGIC
 	}
 }
 
@@ -138,6 +227,11 @@ type PublishBehaviour[K kad.Key[K], N kad.NodeID[K], M coordt.Message[K, N]] str
 	// pool is the publish pool state machine used for managing individual publishes.
 	// it must only be accessed while performMu is held
 	pool coordt.StateMachine[publish.PoolEvent, publish.PoolState]
+
+	// survey is the region survey state machine, responsible for keeping the region map current by
+	// surveying each region on a schedule. It is nil unless [PublishConfig.EnableSurvey] is set.
+	// it must only be accessed while performMu is held
+	survey coordt.StateMachine[publish.SurveyEvent, publish.SurveyState]
 
 	// keystore enumerates the keys this node provides by prefix. It is nil when region
 	// publishing is disabled.
@@ -185,6 +279,11 @@ type PublishBehaviour[K kad.Key[K], N kad.NodeID[K], M coordt.Message[K, N]] str
 	// it must only be accessed while performMu is held
 	nextDue time.Time
 
+	// surveyDue is the time the survey last reported it could next make progress without an event
+	// arriving, or the zero time if it reported none.
+	// it must only be accessed while performMu is held
+	surveyDue time.Time
+
 	// pollAgain records that the pool reported a publish ending rather than a due time,
 	// so nextDue is stale until the pool is advanced again.
 	// it must only be accessed while performMu is held
@@ -196,7 +295,7 @@ type PublishBehaviour[K kad.Key[K], N kad.NodeID[K], M coordt.Message[K, N]] str
 	readyTimer *readyTimer
 }
 
-func NewPublishBehaviour[K kad.Key[K], N kad.NodeID[K], M coordt.Message[K, N]](publishPool *publish.Pool[K, N, M], cfg *PublishConfig[K, N, M]) (*PublishBehaviour[K, N, M], error) {
+func NewPublishBehaviour[K kad.Key[K], N kad.NodeID[K], M coordt.Message[K, N]](publishPool *publish.Pool[K, N, M], self N, rt kad.RoutingTable[K, N], cfg *PublishConfig[K, N, M]) (*PublishBehaviour[K, N, M], error) {
 	if cfg == nil {
 		cfg = DefaultPublishConfig[K, N, M]()
 	} else if err := cfg.Validate(); err != nil {
@@ -247,7 +346,38 @@ func NewPublishBehaviour[K kad.Key[K], N kad.NodeID[K], M coordt.Message[K, N]](
 		return nil, fmt.Errorf("create publish_inbound_queue_depth gauge: %w", err)
 	}
 
+	if cfg.EnableSurvey {
+		table, err := prefix.NewTable[K](&prefix.Config{
+			InitialPrefixLen: cfg.SurveyInitialPrefixLen,
+			MinPopulation:    cfg.SurveyMinPopulation,
+			MaxPopulation:    cfg.SurveyMaxPopulation,
+		})
+		if err != nil {
+			return nil, fmt.Errorf("survey table: %w", err)
+		}
+
+		surveyCfg := publish.DefaultSurveyConfig()
+		surveyCfg.Tracer = cfg.Tracer
+		surveyCfg.Meter = cfg.Meter
+		surveyCfg.Interval = cfg.SurveyInterval
+		surveyCfg.RegionTimeout = cfg.SurveyRegionTimeout
+		surveyCfg.RequestConcurrency = cfg.SurveyRequestConcurrency
+		surveyCfg.RequestTimeout = cfg.SurveyRequestTimeout
+		surveyCfg.WalkInBound = cfg.SurveyWalkInBound
+
+		b.survey, err = publish.NewSurvey(self, rt, table, cfg.SurveyTargetFunc, surveyCfg)
+		if err != nil {
+			return nil, fmt.Errorf("survey: %w", err)
+		}
+	}
+
 	b.readyTimer = newReadyTimer(b.ready)
+
+	// The survey schedule starts running as soon as it is created, so signal ready once to get the
+	// Perform that arms a timer for it. Otherwise a node that is never notified never surveys.
+	if b.survey != nil {
+		signalReady(b.ready)
+	}
 
 	return b, nil
 }
@@ -331,6 +461,12 @@ func (b *PublishBehaviour[K, N, M]) Perform(ctx context.Context) (out BehaviourE
 		return ev, true
 	}
 
+	// poll the survey so a due region survey can start
+	ev, ok = b.advanceSurvey(ctx, time.Now(), &publish.EventSurveyPoll{})
+	if ok {
+		return ev, true
+	}
+
 	// poll the publish pool to trigger any timeouts and other scheduled work
 	ev, ok = b.advancePool(ctx, time.Now(), &publish.EventPoolPoll{})
 	if ok {
@@ -377,7 +513,7 @@ func (b *PublishBehaviour[K, N, M]) updateReadyStatus(performed bool) {
 		return
 	}
 
-	b.readyTimer.Arm(b.nextDue)
+	b.readyTimer.Arm(earlier(b.nextDue, b.surveyDue))
 }
 
 func (b *PublishBehaviour[K, N, M]) performNextInbound(ctx context.Context) (BehaviourEvent, bool) {
@@ -424,24 +560,14 @@ func (b *PublishBehaviour[K, N, M]) performNextInbound(ctx context.Context) (Beh
 			b.notifiers[ev.ActivityID] = &queryNotifier[K, N, M, *EventPublishFinished[K, N]]{monitor: ev.Notify}
 		}
 
-	case *EventStartRegionPublish[K, N]:
-		// region publishing needs a keystore to enumerate keys and a way to build their records
-		if b.keystore == nil || b.recordSource == nil {
-			return nil, false
-		}
-		// a region with no nodes can store nothing
-		if len(ev.Nodes) == 0 {
-			return nil, false
-		}
-		keys := slices.Collect(b.keystore.KeysUnder(ev.Prefix))
-		if len(keys) == 0 {
-			return nil, false
-		}
-		b.regions[ev.ActivityID] = publish.NewRegion(ev.ActivityID, keys, ev.Nodes, b.regionReplication, b.regionMaxInFlight, b.tracer)
-		// the region step in Perform starts the first key
-		return nil, false
-
 	case *EventGetCloserNodesSuccess[K, N]:
+		if ev.ActivityID == publish.SurveyActivityID {
+			return b.advanceSurvey(ctx, time.Now(), &publish.EventSurveyFindCloserResponse[K, N]{
+				NodeID:      ev.To,
+				CloserNodes: ev.CloserNodes,
+			})
+		}
+
 		for _, info := range ev.CloserNodes {
 			b.pendingOutbound = append(b.pendingOutbound, &EventAddNode[K, N]{
 				NodeID: info,
@@ -464,6 +590,13 @@ func (b *PublishBehaviour[K, N, M]) performNextInbound(ctx context.Context) (Beh
 		}
 
 	case *EventGetCloserNodesFailure[K, N]:
+		if ev.ActivityID == publish.SurveyActivityID {
+			return b.advanceSurvey(ctx, time.Now(), &publish.EventSurveyFindCloserFailure[K, N]{
+				NodeID: ev.To,
+				Error:  ev.Err,
+			})
+		}
+
 		// queue an event that will notify the routing behaviour of a failed node
 		b.pendingOutbound = append(b.pendingOutbound, &EventNotifyNonConnectivity[K, N]{
 			ev.To,
@@ -629,6 +762,78 @@ func (b *PublishBehaviour[K, N, M]) advanceRegion(ctx context.Context, now time.
 	}
 
 	return nil, false
+}
+
+// advanceSurvey advances the survey state machine. When no survey is configured it is a no-op, so
+// callers may advance it unconditionally. A finished survey starts a region publish directly.
+func (b *PublishBehaviour[K, N, M]) advanceSurvey(ctx context.Context, now time.Time, ev publish.SurveyEvent) (BehaviourEvent, bool) {
+	if b.survey == nil {
+		return nil, false
+	}
+
+	ctx, span := b.tracer.Start(ctx, "PublishBehaviour.advanceSurvey")
+	defer span.End()
+
+	state := b.survey.Advance(ctx, now, ev)
+	switch st := state.(type) {
+	case *publish.StateSurveyFindCloser[K, N]:
+		b.logger.Debug("starting survey", logAttrNodeID(st.NodeID))
+		return &EventOutboundGetCloserNodes[K, N]{
+			ActivityID: publish.SurveyActivityID,
+			To:         st.NodeID,
+			Target:     st.Target,
+			Notify:     b,
+		}, true
+	case *publish.StateSurveyWaiting:
+		// survey waiting for a message response, nothing to do
+		b.surveyDue = st.NextDue
+	case *publish.StateSurveyFinished[K, N]:
+		// the region has been surveyed, so publish every key inside it. The survey has released its
+		// query and rescheduled the region, so it must be advanced again to report when the next
+		// region falls due.
+		b.surveyDue = time.Time{}
+		b.pollAgain = true
+		b.startRegionPublish(st.Prefix, st.Nodes)
+	case *publish.StateSurveyTimeout:
+		// the region has been rescheduled, so the survey must be advanced again to report when the
+		// next region falls due
+		b.logger.Debug("survey timed out", slog.String("prefix", string(st.Prefix)))
+		b.pollAgain = true
+	case *publish.StateSurveyFailure:
+		// the region has been rescheduled, so the survey must be advanced again to report when the
+		// next region falls due
+		b.logger.Warn("survey failure", slog.String("prefix", string(st.Prefix)), logAttrError(st.Error))
+		b.pollAgain = true
+	case *publish.StateSurveyIdle:
+		// no region is due to be surveyed, nothing to do
+		b.surveyDue = st.NextDue
+	default:
+		panic(fmt.Sprintf("unexpected survey state: %T", st))
+	}
+
+	return nil, false
+}
+
+// startRegionPublish begins a region publish for every provided key inside the surveyed region
+// named by prefix, storing each with the nodes found there. It does nothing when region publishing
+// is disabled, the region holds no nodes, or the region contains no provided key.
+func (b *PublishBehaviour[K, N, M]) startRegionPublish(region bitstr.Key, nodes []N) {
+	// region publishing needs a keystore to enumerate keys and a way to build their records
+	if b.keystore == nil || b.recordSource == nil {
+		return
+	}
+	// a region with no nodes can store nothing
+	if len(nodes) == 0 {
+		return
+	}
+	keys := slices.Collect(b.keystore.KeysUnder(region))
+	if len(keys) == 0 {
+		return
+	}
+	// the region id is derived from the prefix so it is stable and unique across regions
+	regionID := coordt.ActivityID("region-" + string(region))
+	b.regions[regionID] = publish.NewRegion(regionID, keys, nodes, b.regionReplication, b.regionMaxInFlight, b.tracer)
+	// the region step in Perform starts the first key
 }
 
 // A PublishWaiter implements [QueryMonitor] for publishes

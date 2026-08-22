@@ -1,4 +1,4 @@
-package routing
+package publish
 
 import (
 	"context"

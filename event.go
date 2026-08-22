@@ -2,7 +2,6 @@ package xorbie
 
 import (
 	"github.com/ipfs/go-libdht/kad"
-	"github.com/ipfs/go-libdht/kad/key/bitstr"
 
 	"github.com/iand/xorbie/coordt"
 	"github.com/iand/xorbie/query"
@@ -148,18 +147,9 @@ type EventStartOptimisticPublish[K kad.Key[K], N kad.NodeID[K], M coordt.Message
 	Notify            QueryMonitor[K, N, M, *EventPublishFinished[K, N]]
 }
 
-// EventStartRegionPublish instructs the publish behaviour to publish every provided key in a
-// surveyed region.
-type EventStartRegionPublish[K kad.Key[K], N kad.NodeID[K]] struct {
-	ActivityID coordt.ActivityID // the id of the region publish, from which its per-key publish ids derive
-	Prefix     bitstr.Key        // the prefix of the surveyed region
-	Nodes      []N               // the nodes found inside the region
-}
-
 func (*EventStartFollowUpPublish[K, N, M]) behaviourEvent()   {}
 func (*EventStartStaticPublish[K, N, M]) behaviourEvent()     {}
 func (*EventStartOptimisticPublish[K, N, M]) behaviourEvent() {}
-func (*EventStartRegionPublish[K, N]) behaviourEvent()        {}
 
 // EventAddNode notifies the routing behaviour of a potential new node.
 type EventAddNode[K kad.Key[K], N kad.NodeID[K]] struct {
@@ -284,16 +274,6 @@ type EventRoutingRemoved[K kad.Key[K], N kad.NodeID[K]] struct {
 
 func (*EventRoutingRemoved[K, N]) behaviourEvent()      {}
 func (*EventRoutingRemoved[K, N]) routingNotification() {}
-
-// EventRegionSurveyed is emitted by the coordinator when a survey of a region has finished. It
-// carries the region's prefix and the nodes found inside it.
-type EventRegionSurveyed[K kad.Key[K], N kad.NodeID[K]] struct {
-	Prefix bitstr.Key // the prefix of the region that was surveyed
-	Nodes  []N        // the nodes found inside the region
-}
-
-func (*EventRegionSurveyed[K, N]) behaviourEvent()      {}
-func (*EventRegionSurveyed[K, N]) routingNotification() {}
 
 // EventBootstrapFinished is emitted by the coordinator when a bootstrap has finished, either through
 // running to completion or by being canceled.
