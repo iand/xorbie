@@ -181,21 +181,35 @@ func (p *Pool[K, N, M]) handleEvent(ctx context.Context, ev PoolEvent) (sm Publi
 
 	switch ev := ev.(type) {
 	case *EventPoolStartFollowUp[K, N, M]:
-		p.bcs[ev.ActivityID] = NewFollowUp(ev.ActivityID, p.qp, ev.Message, ev.Seed, p.cfg.Tracer)
+		fuCfg := DefaultFollowUpConfig()
+		fuCfg.Tracer = p.cfg.Tracer
+		fu, err := NewFollowUp(ev.ActivityID, p.qp, ev.Message, ev.Seed, fuCfg)
+		if err != nil {
+			return nil, nil
+		}
+		p.bcs[ev.ActivityID] = fu
 
 		return p.bcs[ev.ActivityID], &EventPublishStart[K, N]{
 			Target: ev.Target,
 		}
 
 	case *EventPoolStartStatic[K, N, M]:
-		p.bcs[ev.ActivityID] = NewStatic(ev.ActivityID, ev.Message, ev.Nodes, p.cfg.Tracer)
+		sCfg := DefaultStaticConfig()
+		sCfg.Tracer = p.cfg.Tracer
+		s, err := NewStatic(ev.ActivityID, ev.Message, ev.Nodes, sCfg)
+		if err != nil {
+			return nil, nil
+		}
+		p.bcs[ev.ActivityID] = s
 
 		return p.bcs[ev.ActivityID], &EventPublishStart[K, N]{
 			Target: ev.Target,
 		}
 
 	case *EventPoolStartOptimistic[K, N, M]:
-		o, err := NewOptimistic(ev.ActivityID, p.qp, ev.Message, ev.Seed, ev.NetworkSize, p.cfg.Optimistic, p.cfg.Tracer)
+		oCfg := *p.cfg.Optimistic
+		oCfg.Tracer = p.cfg.Tracer
+		o, err := NewOptimistic(ev.ActivityID, p.qp, ev.Message, ev.Seed, ev.NetworkSize, &oCfg)
 		if err != nil {
 			return nil, nil
 		}

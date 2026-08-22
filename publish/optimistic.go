@@ -18,6 +18,9 @@ import (
 
 // OptimisticConfig specifies the configuration for the [Optimistic] state machine.
 type OptimisticConfig struct {
+	// Tracer is the tracer that should be used to trace execution.
+	Tracer trace.Tracer
+
 	// ReplicationFactor is the number of nodes the record is meant to be stored with.
 	ReplicationFactor int
 
@@ -36,6 +39,13 @@ type OptimisticConfig struct {
 // Validate checks the configuration options and returns an error if any have
 // invalid values.
 func (c *OptimisticConfig) Validate() error {
+	if c.Tracer == nil {
+		return &coordt.ConfigurationError{
+			Component: "OptimisticConfig",
+			Err:       fmt.Errorf("tracer must not be nil"),
+		}
+	}
+
 	if c.ReplicationFactor < 1 {
 		return &coordt.ConfigurationError{
 			Component: "OptimisticConfig",
@@ -87,6 +97,7 @@ func (c *OptimisticConfig) thresholds(networkSize int) (individual float64, set 
 // [Optimistic] state machine.
 func DefaultOptimisticConfig() *OptimisticConfig {
 	return &OptimisticConfig{
+		Tracer:              coordt.NoopTracer(),
 		ReplicationFactor:   20,  // MAGIC
 		IndividualCertainty: 0.9, // MAGIC
 		SetStrictness:       0.1, // MAGIC
@@ -204,7 +215,7 @@ type foundNode[N any] struct {
 // networkSize is the estimated number of nodes in the network, from which both distance
 // thresholds are derived, and must be greater than zero. A nil cfg uses
 // [DefaultOptimisticConfig], and a non-nil one is validated.
-func NewOptimistic[K kad.Key[K], N kad.NodeID[K], M coordt.Message[K, N]](qid coordt.ActivityID, pool *query.Pool[K, N, M], msg M, seeds []N, networkSize int, cfg *OptimisticConfig, tracer trace.Tracer) (*Optimistic[K, N, M], error) {
+func NewOptimistic[K kad.Key[K], N kad.NodeID[K], M coordt.Message[K, N]](qid coordt.ActivityID, pool *query.Pool[K, N, M], msg M, seeds []N, networkSize int, cfg *OptimisticConfig) (*Optimistic[K, N, M], error) {
 	if cfg == nil {
 		cfg = DefaultOptimisticConfig()
 	} else if err := cfg.Validate(); err != nil {
@@ -227,7 +238,7 @@ func NewOptimistic[K kad.Key[K], N kad.NodeID[K], M coordt.Message[K, N]](qid co
 		activityID:          qid,
 		cfg:                 cfg,
 		queryPool:           pool,
-		tracer:              tracer,
+		tracer:              cfg.Tracer,
 		msg:                 msg,
 		seeds:               seeds,
 		individualThreshold: individual,

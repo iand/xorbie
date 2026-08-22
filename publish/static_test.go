@@ -19,7 +19,9 @@ func newStaticTest(t *testing.T, nodes ...tiny.Node) *Static[tiny.Key, tiny.Node
 	t.Helper()
 
 	msg := tiny.Message{Content: "store this"}
-	return NewStatic(testActivityID, msg, nodes, coordt.NoopTracer())
+	s, err := NewStatic(testActivityID, msg, nodes, DefaultStaticConfig())
+	require.NoError(t, err)
+	return s
 }
 
 // TestStaticContactsEverySeedOnce checks that a static publish asks for its record to be

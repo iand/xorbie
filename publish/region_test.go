@@ -19,7 +19,12 @@ const testRegionID = coordt.ActivityID("region")
 // its r closest nodes and running at most cap per-key publishes at once.
 func newRegionTest(t *testing.T, keys []tiny.Key, nodes []tiny.Node, r, maxInFlight int) *RegionPublish[tiny.Key, tiny.Node] {
 	t.Helper()
-	return NewRegion(testRegionID, keys, nodes, r, maxInFlight, coordt.NoopTracer())
+	cfg := DefaultRegionPublishConfig()
+	cfg.Replication = r
+	cfg.MaxInFlight = maxInFlight
+	rp, err := NewRegionPublish(testRegionID, keys, nodes, cfg)
+	require.NoError(t, err)
+	return rp
 }
 
 // TestRegionStartsEveryKeyOnce checks that a region publish starts a per-key publish for each of

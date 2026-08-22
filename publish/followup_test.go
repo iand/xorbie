@@ -8,7 +8,6 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	"github.com/iand/xorbie/coordt"
 	"github.com/iand/xorbie/internal/tiny"
 	"github.com/iand/xorbie/query"
 )
@@ -25,7 +24,9 @@ func newFollowUpTest(t *testing.T, qcfg *query.PoolConfig, seeds ...tiny.Node) *
 	require.NoError(t, err)
 
 	msg := tiny.Message{Content: "store this"}
-	return NewFollowUp(testActivityID, qp, msg, seeds, coordt.NoopTracer())
+	fu, err := NewFollowUp(testActivityID, qp, msg, seeds, DefaultFollowUpConfig())
+	require.NoError(t, err)
+	return fu
 }
 
 // TestFollowUpQueriesBeforeStoring checks that a follow up publish finds the nodes closest

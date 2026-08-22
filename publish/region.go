@@ -56,19 +56,70 @@ type RegionPublish[K kad.Key[K], N kad.NodeID[K]] struct {
 	tracer trace.Tracer
 }
 
-// NewRegion creates a state machine that publishes each key in keys with its r closest nodes
-// drawn from nodes, running at most maxInFlight per-key publishes at once and reporting under the
-// region id qid. Both r and maxInFlight must be at least one.
-func NewRegion[K kad.Key[K], N kad.NodeID[K]](qid coordt.ActivityID, keys []K, nodes []N, r, maxInFlight int, tracer trace.Tracer) *RegionPublish[K, N] {
+// RegionPublishConfig specifies the configuration for a [RegionPublish].
+type RegionPublishConfig struct {
+	// Tracer is the tracer that should be used to trace execution.
+	Tracer trace.Tracer
+
+	// Replication is the number of closest nodes each key is stored with.
+	Replication int
+
+	// MaxInFlight is the greatest number of per-key publishes that may be in flight at once.
+	MaxInFlight int
+}
+
+// Validate checks the configuration options and returns an error if any have invalid values.
+func (cfg *RegionPublishConfig) Validate() error {
+	if cfg.Tracer == nil {
+		return &coordt.ConfigurationError{
+			Component: "RegionPublishConfig",
+			Err:       fmt.Errorf("tracer must not be nil"),
+		}
+	}
+	if cfg.Replication < 1 {
+		return &coordt.ConfigurationError{
+			Component: "RegionPublishConfig",
+			Err:       fmt.Errorf("replication must be greater than zero"),
+		}
+	}
+	if cfg.MaxInFlight < 1 {
+		return &coordt.ConfigurationError{
+			Component: "RegionPublishConfig",
+			Err:       fmt.Errorf("max in flight must be greater than zero"),
+		}
+	}
+	return nil
+}
+
+// DefaultRegionPublishConfig returns the default configuration options for a [RegionPublish].
+// Options may be overridden before passing to [NewRegionPublish].
+func DefaultRegionPublishConfig() *RegionPublishConfig {
+	return &RegionPublishConfig{
+		Tracer:      coordt.NoopTracer(),
+		Replication: 20, // MAGIC
+		MaxInFlight: 16, // MAGIC
+	}
+}
+
+// NewRegionPublish creates a state machine that publishes each key in keys with its
+// [RegionPublishConfig.Replication] closest nodes drawn from nodes, running at most
+// [RegionPublishConfig.MaxInFlight] per-key publishes at once and reporting under the region id qid.
+func NewRegionPublish[K kad.Key[K], N kad.NodeID[K]](qid coordt.ActivityID, keys []K, nodes []N, cfg *RegionPublishConfig) (*RegionPublish[K, N], error) {
+	if cfg == nil {
+		cfg = DefaultRegionPublishConfig()
+	} else if err := cfg.Validate(); err != nil {
+		return nil, err
+	}
+
 	return &RegionPublish[K, N]{
 		regionID:    qid,
 		keys:        keys,
 		nodes:       nodes,
-		r:           r,
-		maxInFlight: maxInFlight,
+		r:           cfg.Replication,
+		maxInFlight: cfg.MaxInFlight,
 		inflight:    map[coordt.ActivityID]int{},
-		tracer:      tracer,
-	}
+		tracer:      cfg.Tracer,
+	}, nil
 }
 
 // Advance advances the state of the [RegionPublish] state machine.

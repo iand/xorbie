@@ -7,7 +7,6 @@ import (
 	"github.com/stretchr/testify/require"
 	"gonum.org/v1/gonum/mathext"
 
-	"github.com/iand/xorbie/coordt"
 	"github.com/iand/xorbie/internal/tiny"
 	"github.com/iand/xorbie/query"
 )
@@ -22,6 +21,15 @@ func TestOptimisticConfigValidate(t *testing.T) {
 			name:  "default",
 			cfg:   DefaultOptimisticConfig(),
 			valid: true,
+		},
+		{
+			name: "nil tracer",
+			cfg: func() *OptimisticConfig {
+				cfg := DefaultOptimisticConfig()
+				cfg.Tracer = nil
+				return cfg
+			}(),
+			valid: false,
 		},
 		{
 			name: "zero replication factor",
@@ -131,7 +139,7 @@ func newOptimisticTest(t *testing.T, networkSize, replicationFactor int, seeds .
 	cfg.ReplicationFactor = replicationFactor
 
 	msg := tiny.Message{Content: "store this"}
-	sm, err := NewOptimistic(testActivityID, qp, msg, seeds, networkSize, cfg, coordt.NoopTracer())
+	sm, err := NewOptimistic(testActivityID, qp, msg, seeds, networkSize, cfg)
 	require.NoError(t, err)
 
 	return sm

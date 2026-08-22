@@ -55,18 +55,48 @@ type Static[K kad.Key[K], N kad.NodeID[K], M coordt.Message[K, N]] struct {
 		Err  error
 	}
 
-	// tracer traces the execution of this state machine. It is supplied by the pool that
-	// created it, since the per-publish configuration carries no telemetry of its own.
+	// tracer traces the execution of this state machine.
 	tracer trace.Tracer
+}
+
+// StaticConfig specifies the configuration for a [Static].
+type StaticConfig struct {
+	// Tracer is the tracer that should be used to trace execution.
+	Tracer trace.Tracer
+}
+
+// Validate checks the configuration options and returns an error if any have invalid values.
+func (cfg *StaticConfig) Validate() error {
+	if cfg.Tracer == nil {
+		return &coordt.ConfigurationError{
+			Component: "StaticConfig",
+			Err:       fmt.Errorf("tracer must not be nil"),
+		}
+	}
+	return nil
+}
+
+// DefaultStaticConfig returns the default configuration options for a [Static].
+// Options may be overridden before passing to [NewStatic].
+func DefaultStaticConfig() *StaticConfig {
+	return &StaticConfig{
+		Tracer: coordt.NoopTracer(),
+	}
 }
 
 // NewStatic creates a state machine that publishes msg to nodes, reporting progress under the
 // query id qid.
-func NewStatic[K kad.Key[K], N kad.NodeID[K], M coordt.Message[K, N]](qid coordt.ActivityID, msg M, nodes []N, tracer trace.Tracer) *Static[K, N, M] {
+func NewStatic[K kad.Key[K], N kad.NodeID[K], M coordt.Message[K, N]](qid coordt.ActivityID, msg M, nodes []N, cfg *StaticConfig) (*Static[K, N, M], error) {
+	if cfg == nil {
+		cfg = DefaultStaticConfig()
+	} else if err := cfg.Validate(); err != nil {
+		return nil, err
+	}
+
 	return &Static[K, N, M]{
 		activityID: qid,
 		nodes:      nodes,
-		tracer:     tracer,
+		tracer:     cfg.Tracer,
 		msg:        msg,
 		todo:       map[string]N{},
 		waiting:    map[string]N{},
@@ -75,7 +105,7 @@ func NewStatic[K kad.Key[K], N kad.NodeID[K], M coordt.Message[K, N]](qid coordt
 			Node N
 			Err  error
 		}{},
-	}
+	}, nil
 }
 
 // Advance advances the state of the [Static] [Publish] state machine.

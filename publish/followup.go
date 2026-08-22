@@ -76,18 +76,48 @@ type FollowUp[K kad.Key[K], N kad.NodeID[K], M coordt.Message[K, N]] struct {
 		Err  error
 	}
 
-	// tracer traces the execution of this state machine. It is supplied by the pool that
-	// created it, since the per-publish configuration carries no telemetry of its own.
+	// tracer traces the execution of this state machine.
 	tracer trace.Tracer
+}
+
+// FollowUpConfig specifies the configuration for a [FollowUp].
+type FollowUpConfig struct {
+	// Tracer is the tracer that should be used to trace execution.
+	Tracer trace.Tracer
+}
+
+// Validate checks the configuration options and returns an error if any have invalid values.
+func (cfg *FollowUpConfig) Validate() error {
+	if cfg.Tracer == nil {
+		return &coordt.ConfigurationError{
+			Component: "FollowUpConfig",
+			Err:       fmt.Errorf("tracer must not be nil"),
+		}
+	}
+	return nil
+}
+
+// DefaultFollowUpConfig returns the default configuration options for a [FollowUp].
+// Options may be overridden before passing to [NewFollowUp].
+func DefaultFollowUpConfig() *FollowUpConfig {
+	return &FollowUpConfig{
+		Tracer: coordt.NoopTracer(),
+	}
 }
 
 // NewFollowUp creates a state machine that publishes msg to the nodes closest to the target
 // it is started with, querying from seeds in pool and reporting progress under the query id qid.
-func NewFollowUp[K kad.Key[K], N kad.NodeID[K], M coordt.Message[K, N]](qid coordt.ActivityID, pool *query.Pool[K, N, M], msg M, seeds []N, tracer trace.Tracer) *FollowUp[K, N, M] {
+func NewFollowUp[K kad.Key[K], N kad.NodeID[K], M coordt.Message[K, N]](qid coordt.ActivityID, pool *query.Pool[K, N, M], msg M, seeds []N, cfg *FollowUpConfig) (*FollowUp[K, N, M], error) {
+	if cfg == nil {
+		cfg = DefaultFollowUpConfig()
+	} else if err := cfg.Validate(); err != nil {
+		return nil, err
+	}
+
 	return &FollowUp[K, N, M]{
 		activityID: qid,
 		queryPool:  pool,
-		tracer:     tracer,
+		tracer:     cfg.Tracer,
 		msg:        msg,
 		seeds:      seeds,
 		todo:       map[string]N{},
@@ -97,7 +127,7 @@ func NewFollowUp[K kad.Key[K], N kad.NodeID[K], M coordt.Message[K, N]](qid coor
 			Node N
 			Err  error
 		}{},
-	}
+	}, nil
 }
 
 // Advance advances the state of the [FollowUp] [Publish] state machine.

@@ -347,11 +347,12 @@ func NewPublishBehaviour[K kad.Key[K], N kad.NodeID[K], M coordt.Message[K, N]](
 	}
 
 	if cfg.EnableSurvey {
-		table, err := prefix.NewTable[K](&prefix.Config{
-			InitialPrefixLen: cfg.SurveyInitialPrefixLen,
-			MinPopulation:    cfg.SurveyMinPopulation,
-			MaxPopulation:    cfg.SurveyMaxPopulation,
-		})
+		tableCfg := prefix.DefaultConfig()
+		tableCfg.InitialPrefixLen = cfg.SurveyInitialPrefixLen
+		tableCfg.MinPopulation = cfg.SurveyMinPopulation
+		tableCfg.MaxPopulation = cfg.SurveyMaxPopulation
+
+		table, err := prefix.NewTable[K](tableCfg)
 		if err != nil {
 			return nil, fmt.Errorf("survey table: %w", err)
 		}
@@ -832,7 +833,17 @@ func (b *PublishBehaviour[K, N, M]) startRegionPublish(region bitstr.Key, nodes 
 	}
 	// the region id is derived from the prefix so it is stable and unique across regions
 	regionID := coordt.ActivityID("region-" + string(region))
-	b.regions[regionID] = publish.NewRegion(regionID, keys, nodes, b.regionReplication, b.regionMaxInFlight, b.tracer)
+	rpCfg := publish.DefaultRegionPublishConfig()
+	rpCfg.Tracer = b.tracer
+	rpCfg.Replication = b.regionReplication
+	rpCfg.MaxInFlight = b.regionMaxInFlight
+
+	rp, err := publish.NewRegionPublish(regionID, keys, nodes, rpCfg)
+	if err != nil {
+		b.logger.Warn("failed to start region publish", slog.String("prefix", string(region)), logAttrError(err))
+		return
+	}
+	b.regions[regionID] = rp
 	// the region step in Perform starts the first key
 }
 
