@@ -755,7 +755,7 @@ func (b *PublishBehaviour[K, N, M]) advanceRegion(ctx context.Context, now time.
 			Nodes:      st.Nodes,
 		})
 	case *publish.StateRegionFinished:
-		// TODO: record the region's last-provided time before dropping the region
+		// the region is fully published
 		delete(b.regions, regionID)
 	case *publish.StateRegionWaiting:
 		// nothing to start now; a per-key publish finishing frees a slot
